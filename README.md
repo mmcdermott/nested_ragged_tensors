@@ -41,7 +41,12 @@ patient's have `torch.LongTensor([3, 2])` events each, and the events have `torc
 codes each. In this way, we store the data in a reconstructable format that preserves only the values observed
 and the metadata needed to reconstruct the dense view in a set of flat tensors that we can work with
 efficiently. To make these data easier to slice, we also store the cumulative sums of these lengths tensors
-directly, such that it is easy to slice down to a specific patient or a specific patient's events.
+directly, such that it is easy to slice down to a specific patient or a specific patient's events. Ultimately,
+if we have `N` patients with a maximum of `M` events and a maximum of `C` codes per event, the dense storage
+would cost `O(N*M*C)`. If in that dataset there are only `V1 << N*M` observed events and `V2 << V1*C` observed
+codes, then this sparse format costs `O(N) + O(V1) + O(V2)` which is substantially less than the dense storage
+cost, and it still has `O(1)` lookup speed to access an individual patient's data or an individual set of
+events within a patient, though of course the constant factor on the lookup is larger.
 
 These kinds of data can also be mutually dependent on one another, which provide another way to save data and
 costs here. For example, if we don't just want to store a patient's diagnostic codes, but also want to store
