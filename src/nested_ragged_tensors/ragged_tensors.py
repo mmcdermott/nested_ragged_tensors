@@ -382,7 +382,7 @@ class RaggedTensor:
                 )
             case list() as Ts if all(isinstance(T, (int, float)) for T in Ts):
                 return curr_lengths, Ts
-            case torch.Tensor() as len(T.shape) == 1:
+            case torch.Tensor() as T if len(T.shape) == 1:
                 return curr_lengths, T
             case _:
                 raise TypeError(
