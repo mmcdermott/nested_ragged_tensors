@@ -460,7 +460,10 @@ class JointNestedRaggedTensorDict:
                 self.tensors[f"{dim_str}/{k}"] = torch.Tensor(T)
                 continue
 
-            ragged_T = RaggedTensor.from_nested_list(T)
+            try:
+                ragged_T = RaggedTensor.from_nested_list(T)
+            except TypeError as e:
+                raise ValueError(f"Failed to parse {k} as a nested list of numbers!") from e
             lengths, bounds, vals = ragged_T.lengths, ragged_T.bounds, ragged_T.vals
 
             for i, (L, B) in enumerate(zip(lengths, bounds)):
