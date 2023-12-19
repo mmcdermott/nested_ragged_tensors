@@ -3,7 +3,7 @@ import itertools
 from pathlib import Path
 
 import torch
-from safetensors.numpy import load_file, save_file
+from safetensors.torch import load_file, save_file
 
 NUM_T = int | float
 NESTED_NUM_LIST = list["NESTED_NUM_LIST"] | NUM_T
@@ -12,47 +12,24 @@ NESTED_NUM_LIST = list["NESTED_NUM_LIST"] | NUM_T
 class RaggedTensor:
     def __init__(
         self,
-        lengths: list[torch.LongTensor | np.ndarray],
-        bounds: list[torch.LongTensor | np.ndarray],
-        vals: torch.LongTensor | np.ndarray,
-        bound_offsets: torch.LongTensor | np.ndarray | None = None,
+        lengths: list[torch.LongTensor],
+        bounds: list[torch.LongTensor],
+        vals: torch.LongTensor,
+        bound_offsets: torch.LongTensor | None = None,
     ):
-        match vals:
-            case torch.Tensor():
-                self.mode = 'torch'
-                self.tensor_cls = torch.Tensor
-            case np.ndarray():
-                self.mode = 'np'
-                self.tensor_cls = np.ndarray
-            case _:
-                raise TypeError(f"vals type {type(vals)} not supported")
-
-        if not (
-            isinstance(lengths, self.tensor_cls) and
-            isinstance(bounds, self.tensor_cls) and 
-            (isinstance(bound_offsets, self.tensor_cls) or bound_offsets is None)
-        ):
-            raise TypeError(
-                f"Type mismatch between vals {type(vals)}, lengths {type(lengths)}, "
-                f"bounds {type(bounds)}, and bound_offsets {type(bound_offsets)}."
-            )
-
         self.lengths = lengths
         self.bounds = bounds
         self.vals = vals
 
         self.dtype = vals.dtype
-        self.device = vals.device if isinstance(vals, torch.Tensor) else 'cpu'
+        self.device = vals.device
 
         self.n_dims = len(lengths) + 1
         if len(bounds) != (self.n_dims - 1):
             raise ValueError(f"Tensor dim inconsistent! {self.n_dims - 1} != {len(bounds)}")
 
         if bound_offsets is None:
-            if self.mode == 'torch':
-                bound_offsets = torch.zeros((self.n_dims - 1,), device=self.device, dtype=torch.int64)
-            elif self.mode == 'np':
-                bound_offsets = np.zeros((self.n_dims - 1,), dtype=np.int64)
+            bound_offsets = torch.zeros((self.n_dims - 1,), device=self.device, dtype=torch.int64)
         self.bound_offsets = bound_offsets
 
     def __repr__(self) -> str:
@@ -76,9 +53,9 @@ class RaggedTensor:
                     [2, 3]])
             >>> x[0][1]
             tensor([2, 3])
-            >>> lengths = [np.array([1, 2, 1, 1], dtype=np.uint16)]
-            >>> bounds = [np.array([1, 3, 4, 5], dtype=np.uint16)]
-            >>> vals = np.array([1, 2, 3, 4, 5], dtype=int)
+            >>> lengths = [torch.LongTensor([1, 2, 1, 1])]
+            >>> bounds = [torch.LongTensor([1, 3, 4, 5])]
+            >>> vals = torch.LongTensor([1, 2, 3, 4, 5])
             >>> x = RaggedTensor(lengths, bounds, vals)
             >>> x[1:3].to_dense()
             tensor([[2, 3],
@@ -234,7 +211,7 @@ class RaggedTensor:
 
         return indices
 
-    def to_dense(self) -> torch.Tensor | np.ndarray:
+    def to_dense(self) -> torch.Tensor:
         """Returns a dense view of this nested ragged tensor.
 
         Examples:
@@ -263,10 +240,7 @@ class RaggedTensor:
                     [2, 3],
                     [4, 0]])
         """
-        if self.mode == 'torch':
-            out = torch.zeros(self.shape, device=self.device, dtype=self.dtype)
-        else:
-            out = np.zeros(self.shape, dtype=self.dtype)
+        out = torch.zeros(self.shape, device=self.device, dtype=self.dtype)
         indices = tuple(zip(*self.indices))
 
         out[indices] = self.vals
@@ -373,14 +347,9 @@ class RaggedTensor:
         T1._reset_offset()
         T2._reset_offset()
 
-        if self.mode == 'torch':
-            new_lengths = [torch.cat((t1, t2), dim=0) for t1, t2 in zip(T1.lengths, T2.lengths)]
-            new_bounds = [torch.cat((t1, t2 + t1[-1]), dim=0) for t1, t2 in zip(T1.bounds, T2.bounds)]
-            new_vals = torch.cat((T1.vals, T2.vals), dim=0)
-        else:
-            new_lengths = [np.cat((t1, t2), dim=0) for t1, t2 in zip(T1.lengths, T2.lengths)]
-            new_bounds = [np.cat((t1, t2 + t1[-1]), dim=0) for t1, t2 in zip(T1.bounds, T2.bounds)]
-            new_vals = np.cat((T1.vals, T2.vals), dim=0)
+        new_lengths = [torch.cat((t1, t2), dim=0) for t1, t2 in zip(T1.lengths, T2.lengths)]
+        new_bounds = [torch.cat((t1, t2 + t1[-1]), dim=0) for t1, t2 in zip(T1.bounds, T2.bounds)]
+        new_vals = torch.cat((T1.vals, T2.vals), dim=0)
         return RaggedTensor(new_lengths, new_bounds, new_vals)
 
     @staticmethod
@@ -407,14 +376,12 @@ class RaggedTensor:
             curr_lengths = []
 
         match T:
-            case list() as Ts if all(isinstance(T, (list, torch.Tensor, np.ndarray)) for T in Ts):
+            case list() as Ts if all(isinstance(T, (list, torch.Tensor)) for T in Ts):
                 return RaggedTensor._get_lengths_and_values(
                     list(itertools.chain.from_iterable(Ts)), curr_lengths + [[len(T) for T in Ts]]
                 )
             case list() as Ts if all(isinstance(T, (int, float)) for T in Ts):
                 return curr_lengths, Ts
-            case np.ndarray() as T if len(T.shape) == 1:
-                return curr_lengths, T
             case torch.Tensor() as T if len(T.shape) == 1:
                 return curr_lengths, T
             case _:
@@ -423,7 +390,7 @@ class RaggedTensor:
                 )
 
     @classmethod
-    def from_nested_list(cls, T: NESTED_NUM_LIST, mode: str = 'np') -> "RaggedTensor":
+    def from_nested_list(cls, T: NESTED_NUM_LIST) -> "RaggedTensor":
         """Returns a RaggedTensor from a nested list of values.
 
         Args:
@@ -450,16 +417,9 @@ class RaggedTensor:
         if lengths == []:
             raise ValueError("Passed values are 1D; a ragged tensor is not needed!")
 
-        if mode == 'torch':
-            lengths = [torch.LongTensor(L) for L in lengths]
-            bounds = [torch.cumsum(L, dim=0) for L in lengths]
-            vals = torch.Tensor(vals)
-        elif mode == 'np':
-            lengths = [np.array(L, dtype=np.uint64) for L in lengths]
-            bounds = [np.cumsum(L, dim=0) for L in lengths]
-            vals = np.array(vals)
-        else:
-            raise TypeError(f"Must specify mode in 'np', 'torch'")
+        lengths = [torch.LongTensor(L) for L in lengths]
+        bounds = [torch.cumsum(L, dim=0) for L in lengths]
+        vals = torch.Tensor(vals)
 
         return cls(lengths, bounds, vals)
 
