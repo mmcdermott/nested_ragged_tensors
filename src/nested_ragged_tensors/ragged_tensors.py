@@ -376,14 +376,18 @@ class RaggedTensor:
             curr_lengths = []
 
         match T:
-            case list() as Ts if all(isinstance(T, list) for T in Ts):
+            case list() as Ts if all(isinstance(T, (list, torch.Tensor)) for T in Ts):
                 return RaggedTensor._get_lengths_and_values(
                     list(itertools.chain.from_iterable(Ts)), curr_lengths + [[len(T) for T in Ts]]
                 )
             case list() as Ts if all(isinstance(T, (int, float)) for T in Ts):
                 return curr_lengths, Ts
+            case torch.Tensor() as len(T.shape) == 1:
+                return curr_lengths, T
             case _:
-                raise TypeError(f"T must be list of numbers or a nested list of lists. Got {type(T)}")
+                raise TypeError(
+                    f"T must be list of numbers or a nested list of lists. Got {type(T)}[{type(T[0])}]"
+                )
 
     @classmethod
     def from_nested_list(cls, T: NESTED_NUM_LIST) -> "RaggedTensor":
