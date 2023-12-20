@@ -692,6 +692,34 @@ class JointNestedRaggedTensorDict:
             case _:
                 raise TypeError(f"{type(idx)} not supported for RaggedTensor.__getitem__")
 
+    def _iter_slices(self) -> Generator[tuple[tuple[int], int, np.ndarray], None, None]:
+        """Returns a list of the indices and lengths of the slices this would have in a dense view.
+
+        Examples:
+            >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
+            >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
+            >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+            >>> x = RaggedTensor(lengths, bounds, vals)
+            >>> list(x._iter_slices()) # doctest: +NORMALIZE_WHITESPACE
+            [((0, 0), 1, array([1])),
+             ((0, 1), 2, array([2, 3])),
+             ((1, 0), 3, array([4, 5, 6])),
+             ((1, 1), 4, array([ 7,  8,  9, 10])),
+             ((1, 2), 1, array([11])),
+             ((2, 0), 1, array([12]))]
+        """
+        # Get slice lengths
+        slice_lengths = self.lengths[-1]
+
+        # Get slice value splits
+        bounds = np.concatenate(([0], self.bounds[-1]), 0)
+        slice_vals = (self.vals[b:e] for b, e in zip(bounds[:-1], bounds[1:]))
+
+        # Get slice indices
+        indices = get_ragged_indices(len(slice_lengths), self.lengths[:-1])
+
+        return zip(indices, slice_lengths, slice_vals)
+
     def to_dense(self) -> dict[str, np.array]:
         """Returns a dense view of these ragged tensors.
 
@@ -724,11 +752,34 @@ class JointNestedRaggedTensorDict:
                     [0. , 0. , 0. ]]])
         """
         out = {}
-        for key in self.keys():
-            T = self._get_key(key)
-            if isinstance(T, RaggedTensor):
-                T = T.to_dense()
-            out[key] = T
+
+        shape = [len(self)]
+        indices = [(i,) for i in range(len(self))]
+
+        for dim in range(self.max_n_dims):
+            if dim == 0:
+                for key in self.keys_at_dim(dim):
+                    out[key] = self.tensors[f"dim{dim}/{key}"]
+                continue
+
+            L = self.tensors[f"dim{dim}/lengths"]
+            B = np.concatenate(([0], self.tensors[f"dim{dim}/bounds"]), 0)
+
+            shape.append(max(L))
+
+            for key in self.keys_at_dim(dim):
+                vals = self.tensors[f"dim{dim}/{key}"]
+                slice_vals = (vals[b:e] for b, e in zip(B[:-1], B[1:]))
+
+                out[key] = np.zeros(shape=tuple(shape), dtype=vals.dtype)
+                for sl, ln, vs in zip(indices, L, slice_vals):
+                    out[key][sl + (slice(None, ln),)] = vs
+
+            indices = list(
+                itertools.chain.from_iterable(
+                    (base_idx + (j,) for j in range(ln)) for base_idx, ln in zip(indices, L)
+                )
+            )
 
         return out
 

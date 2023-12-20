@@ -11,6 +11,12 @@ def get_ragged_indices(
         nested_lengths: The nested ragged lengths of the slices.
 
     Examples:
+            >>> list(get_ragged_indices(3, [])) # doctest: +NORMALIZE_WHITESPACE
+            [(0,), (1,), (2,)]
+            >>> list(get_ragged_indices(6, [[2, 3, 1]])) # doctest: +NORMALIZE_WHITESPACE
+            [(0, 0), (0, 1),
+             (1, 0), (1, 1), (1, 2),
+             (2, 0)]
             >>> lengths = [[2, 3, 1], [1, 2, 3, 4, 1, 1]]
             >>> list(get_ragged_indices(12, lengths)) # doctest: +NORMALIZE_WHITESPACE
             [(0, 0, 0), (0, 1, 0), (0, 1, 1),
