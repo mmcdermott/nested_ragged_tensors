@@ -1,5 +1,47 @@
 from collections.abc import Generator, Sequence
+import numpy as np
+import torch
 
+def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
+    """Checks if ``L`` is a nested list of ``dim`` dimensions.
+
+    Args:
+        L: The list to be checked.
+        dim: The target dimension of the list.
+
+    Examples:
+        >>> is_ndim_list([1, 2, 3], dim=1)
+        True
+        >>> is_ndim_list([[1, 2], [4]], dim=2)
+        True
+        >>> is_ndim_list([[1, 2], [4]], dim=1)
+        False
+        >>> is_ndim_list([[[1, 2], torch.Tensor([4])]], dim=2)
+        False
+        >>> is_ndim_list([[[1, 2], [4]], [np.array([1, 2, 3])]], dim=3)
+        True
+        >>> is_ndim_list([[[1, 2], torch.Tensor([4])]], dim=3)
+        True
+        >>> is_ndim_list([[[1, 2], torch.Tensor([4])]], dim=0)
+        Traceback (most recent call last):
+            ...
+        ValueError: dim must be positive, but got 0
+    """
+
+    if dim <= 0:
+        raise ValueError(f"dim must be positive, but got {dim}")
+
+    match L:
+        case np.ndarray():
+            return L.ndim == dim
+        case list() if dim == 1:
+            return all(isinstance(x, (int, float)) for x in L)
+        case list():
+            return all(is_ndim_list(x, dim-1) for x in L)
+        case torch.Tensor():
+            return L.dim() == dim
+        case _:
+            return False
 
 def get_ragged_indices(
     num_values: int, nested_lengths: list[Sequence[int]]

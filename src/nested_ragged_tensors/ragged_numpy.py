@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from safetensors.numpy import load_file, save_file
 
-from .utils import get_ragged_indices
+from .utils import get_ragged_indices, is_ndim_list
 
 NUM_T = int | float
 NESTED_NUM_LIST = list["NESTED_NUM_LIST"] | NUM_T
@@ -340,24 +340,24 @@ class RaggedTensor:
 
         Examples:
             >>> RaggedTensor._get_lengths_and_values([1, 2, 3])
-            ([], [1, 2, 3])
+            (None, [1, 2, 3])
             >>> RaggedTensor._get_lengths_and_values([[1, 2, 3], [3, 4]])
-            ([[3, 2]], [1, 2, 3, 3, 4])
+            ([[3, 2]], [[1, 2, 3], [3, 4]])
             >>> RaggedTensor._get_lengths_and_values([[[1, 2, 3], [3, 4]], [[3], [3, 2, 2], [3, 5]]])
-            ([[2, 3], [3, 2, 1, 3, 2]], [1, 2, 3, 3, 4, 3, 3, 2, 2, 3, 5])
+            ([[2, 3], [3, 2, 1, 3, 2]], [[1, 2, 3], [3, 4], [3], [3, 2, 2], [3, 5]])
         """
         if curr_lengths is None:
             curr_lengths = []
 
         match T:
-            case list() as Ts if all(isinstance(T, (list, np.ndarray)) for T in Ts):
+            case list() if is_ndim_list(T, dim=2):
+                return curr_lengths, T
+            case list() if is_ndim_list(T, dim=1):
+                return None, T
+            case list() as Ts:
                 return RaggedTensor._get_lengths_and_values(
                     list(itertools.chain.from_iterable(Ts)), curr_lengths + [[len(T) for T in Ts]]
                 )
-            case list() as Ts if all(isinstance(T, (int, float)) for T in Ts):
-                return curr_lengths, Ts
-            case np.ndarray() as T if len(T.shape) == 1:
-                return curr_lengths, T
             case _:
                 raise TypeError(
                     f"T must be list of numbers or a nested list of lists. Got {type(T)}[{type(T[0])}]"
