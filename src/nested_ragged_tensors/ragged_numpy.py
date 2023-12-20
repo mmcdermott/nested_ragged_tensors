@@ -6,397 +6,168 @@ import numpy as np
 from safetensors.numpy import load_file, save_file
 
 from .utils import get_ragged_indices, is_ndim_list
+from .ragged_base import RaggedTensorBase, NUM_T, NESTED_NUM_T
+from .joint_nested_ragged_tensor import JointNestedRaggedTensorBaseDict
 
-NUM_T = int | float
-NESTED_NUM_LIST = list["NESTED_NUM_LIST"] | NUM_T
 
+class RaggedTensor(RaggedTensorBase[np.ndarray]):
+    """A nested ragged numpy tensor.
 
-class RaggedTensor:
-    def __init__(
-        self,
-        lengths: list[np.ndarray],
-        bounds: list[np.ndarray],
-        vals: np.ndarray,
-    ):
-        self.lengths = lengths
-        self.bounds = bounds
-        self.vals = vals
+    Examples:
+        >>> RaggedTensor.from_nested_list([[1, 2, 3], [3, 4]])
+        RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 3 4])
+        >>> RaggedTensor.from_nested_list([1, 2, 3])
+        Traceback (most recent call last):
+            ...
+        ValueError: Passed values are 1D; a ragged tensor is not needed!
+        >>> RaggedTensor.from_nested_list([[[1, 2, 3], [3, 4]], [[3], [3, 2, 2], [3, 5]]]).to_dense()
+        array([[[1, 2, 3],
+                [3, 4, 0],
+                [0, 0, 0]],
+        <BLANKLINE>
+               [[3, 0, 0],
+                [3, 2, 2],
+                [3, 5, 0]]])
+        >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
+        >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
+        >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        >>> x = RaggedTensor(lengths, bounds, vals)
+        >>> x.n_values
+        12
+        >>> len(x)
+        2
+        >>> x.shape
+        (2, 3, 4)
+        >>> list(x._iter_slices()) # doctest: +NORMALIZE_WHITESPACE
+        [((0, 0), 1, array([1])),
+         ((0, 1), 2, array([2, 3])),
+         ((1, 0), 3, array([4, 5, 6])),
+         ((1, 1), 4, array([ 7,  8,  9, 10])),
+         ((1, 2), 1, array([11])),
+         ((2, 0), 1, array([12]))]
+        >>> x[0]
+        RaggedTensor([array([1, 2])], [array([1, 3])], [1 2 3])
+        >>> x[0].to_dense()
+        array([[1, 0],
+               [2, 3]])
+        >>> x[0][1]
+        array([2, 3])
+        >>> lengths = [np.array([1, 2, 1, 1], dtype=np.uint16)]
+        >>> bounds = [np.array([1, 3, 4, 5], dtype=np.uint16)]
+        >>> vals = np.array([1, 2, 3, 4, 5], dtype=int)
+        >>> x = RaggedTensor(lengths, bounds, vals)
+        >>> x.to_dense()
+        array([[1, 0],
+               [2, 3],
+               [4, 0],
+               [5, 0]])
+        >>> x.n_values
+        5
+        >>> len(x)
+        4
+        >>> x.shape
+        (4, 2)
+        >>> x[1:3].to_dense()
+        array([[2, 3],
+               [4, 0]])
+        >>> x[:3].to_dense()
+        array([[1, 0],
+               [2, 3],
+               [4, 0]])
+        >>> x[1:].to_dense()
+        array([[2, 3],
+               [4, 0],
+               [5, 0]])
+        >>> x[:2, :1]
+        Traceback (most recent call last):
+            ...
+        TypeError: <class 'tuple'> not supported for RaggedTensor.__getitem__
+        >>> lengths1 = [np.array([2, 3, 2]), np.array([1, 2, 3, 4,  1,  1,  2])]
+        >>> bounds1  = [np.array([2, 5, 7]), np.array([1, 3, 6, 10, 11, 12, 14])]
+        >>> vals1 = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
+        >>> x1 = RaggedTensor(lengths1, bounds1, vals1)
+        >>> x1.to_dense()
+        array([[[ 1,  0,  0,  0],
+                [ 2,  3,  0,  0],
+                [ 0,  0,  0,  0]],
+        <BLANKLINE>
+               [[ 4,  5,  6,  0],
+                [ 7,  8,  9, 10],
+                [11,  0,  0,  0]],
+        <BLANKLINE>
+               [[12,  0,  0,  0],
+                [13, 14,  0,  0],
+                [ 0,  0,  0,  0]]])
+        >>> lengths2 = [np.array([1, 4]), np.array([1, 2, 2, 1, 2])]
+        >>> bounds2  = [np.array([1, 5]), np.array([1, 3, 5, 6, 8])]
+        >>> vals2 = np.array([15, 16, 17, 18, 19, 20, 21, 22])
+        >>> x2 = RaggedTensor(lengths2, bounds2, vals2)
+        >>> x2.to_dense()
+        array([[[15,  0],
+                [ 0,  0],
+                [ 0,  0],
+                [ 0,  0]],
+        <BLANKLINE>
+               [[16, 17],
+                [18, 19],
+                [20,  0],
+                [21, 22]]])
+        >>> RaggedTensor.concatenate([x1, x2]).to_dense()
+        array([[[ 1,  0,  0,  0],
+                [ 2,  3,  0,  0],
+                [ 0,  0,  0,  0],
+                [ 0,  0,  0,  0]],
+        <BLANKLINE>
+               [[ 4,  5,  6,  0],
+                [ 7,  8,  9, 10],
+                [11,  0,  0,  0],
+                [ 0,  0,  0,  0]],
+        <BLANKLINE>
+               [[12,  0,  0,  0],
+                [13, 14,  0,  0],
+                [ 0,  0,  0,  0],
+                [ 0,  0,  0,  0]],
+        <BLANKLINE>
+               [[15,  0,  0,  0],
+                [ 0,  0,  0,  0],
+                [ 0,  0,  0,  0],
+                [ 0,  0,  0,  0]],
+        <BLANKLINE>
+               [[16, 17,  0,  0],
+                [18, 19,  0,  0],
+                [20,  0,  0,  0],
+                [21, 22,  0,  0]]])
+        >>> RaggedTensor.concatenate([x1, x2])[2:].to_dense()
+        array([[[12,  0],
+                [13, 14],
+                [ 0,  0],
+                [ 0,  0]],
+        <BLANKLINE>
+               [[15,  0],
+                [ 0,  0],
+                [ 0,  0],
+                [ 0,  0]],
+        <BLANKLINE>
+               [[16, 17],
+                [18, 19],
+                [20,  0],
+                [21, 22]]])
+    """
 
-        self.dtype = vals.dtype
-        self.device = None
-
-        self.n_dims = len(lengths) + 1
-        if len(bounds) != (self.n_dims - 1):
-            raise ValueError(f"Tensor dim inconsistent! {self.n_dims - 1} != {len(bounds)}")
-
-    def __repr__(self) -> str:
-        return f"RaggedTensor({self.lengths}, {self.bounds}, {self.vals})"
-
-    def __str__(self) -> str:
-        return self.__repr__()
-
-    def __getitem__(self, idx: slice | int):
-        """Returns a new RaggedTensor view of the underlying data sliced accordingly.
-
-        Examples:
-            >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
-            >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
-            >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x[0]
-            RaggedTensor([array([1, 2])], [array([1, 3])], [1 2 3])
-            >>> x[0].to_dense()
-            array([[1, 0],
-                   [2, 3]])
-            >>> x[0][1]
-            array([2, 3])
-            >>> lengths = [np.array([1, 2, 1, 1], dtype=np.uint16)]
-            >>> bounds = [np.array([1, 3, 4, 5], dtype=np.uint16)]
-            >>> vals = np.array([1, 2, 3, 4, 5], dtype=int)
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x[1:3].to_dense()
-            array([[2, 3],
-                   [4, 0]])
-            >>> x[:3].to_dense()
-            array([[1, 0],
-                   [2, 3],
-                   [4, 0]])
-            >>> x[1:].to_dense()
-            array([[2, 3],
-                   [4, 0],
-                   [5, 0]])
-            >>> x[:2, :1]
-            Traceback (most recent call last):
-                ...
-            TypeError: <class 'tuple'> not supported for RaggedTensor.__getitem__
-        """
-        match idx:
-            case int() as i:
-                out = self[slice(i, i + 1)]
-                if out.n_dims == 2:
-                    return out.vals
-                else:
-                    return RaggedTensor(out.lengths[1:], out.bounds[1:], out.vals)
-            case slice() as S:
-                st_i = 0 if S.start is None else S.start
-                end_i = S.stop
-
-                if S.step not in (None, 1):
-                    raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
-
-                new_lengths = []
-                new_bounds = []
-                for j, (L, B) in enumerate(zip(self.lengths, self.bounds)):
-                    if st_i == 0:
-                        offset = 0
-                    else:
-                        offset = B[st_i - 1]
-
-                    new_lengths.append(L[st_i:end_i])
-                    new_bounds.append(B[st_i:end_i] - offset)  # Could track the offset instead
-
-                    st_i = 0 if st_i == 0 else B[st_i - 1]
-                    end_i = B[end_i - 1] if end_i is not None else B[-1]
-
-                new_vals = self.vals[st_i:end_i]
-
-                return RaggedTensor(new_lengths, new_bounds, new_vals)
-            case _:
-                raise TypeError(f"{type(idx)} not supported for RaggedTensor.__getitem__")
-
-    @property
-    def n_values(self) -> int:
-        """Returns the number of non-padded values this nested ragged tensor has.
-
-        Examples:
-            >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
-            >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
-            >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x.n_values
-            12
-            >>> lengths = [np.array([1, 2, 1])]
-            >>> bounds = [np.array([1, 3, 4])]
-            >>> vals = np.array([1, 2, 3, 4])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x.n_values
-            4
-        """
-        return len(self.vals)
-
-    def __len__(self) -> int:
-        """Returns the length (dim 0 shape) of this ragged tensor.
-
-        Examples:
-            >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
-            >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
-            >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> len(x)
-            3
-            >>> lengths = [np.array([1, 2])]
-            >>> bounds = [np.array([1, 3])]
-            >>> vals = np.array([1, 2, 3])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> len(x)
-            2
-        """
-        return len(self.lengths[0])
-
-    @property
-    def shape(self) -> tuple[int]:
-        """Returns the shape a dense view of this nested ragged tensor would have.
-
-        Examples:
-            >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
-            >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
-            >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x.shape
-            (3, 3, 4)
-            >>> lengths = [np.array([1, 2, 1])]
-            >>> bounds = [np.array([1, 3, 4])]
-            >>> vals = np.array([1, 2, 3, 4])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x.shape
-            (3, 2)
-        """
-        out_shape = [len(self.lengths[0])]
-        for L in self.lengths:
-            out_shape.append(L.max().item())
-        return tuple(out_shape)
-
-    def _iter_slices(self) -> Generator[tuple[tuple[int], int, np.ndarray], None, None]:
-        """Returns a list of the indices and lengths of the slices this would have in a dense view.
-
-        Examples:
-            >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
-            >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
-            >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> list(x._iter_slices()) # doctest: +NORMALIZE_WHITESPACE
-            [((0, 0), 1, array([1])),
-             ((0, 1), 2, array([2, 3])),
-             ((1, 0), 3, array([4, 5, 6])),
-             ((1, 1), 4, array([ 7,  8,  9, 10])),
-             ((1, 2), 1, array([11])),
-             ((2, 0), 1, array([12]))]
-        """
-        # Get slice lengths
-        slice_lengths = self.lengths[-1]
-
-        # Get slice value splits
-        bounds = np.concatenate(([0], self.bounds[-1]), 0)
-        slice_vals = (self.vals[b:e] for b, e in zip(bounds[:-1], bounds[1:]))
-
-        # Get slice indices
-        indices = get_ragged_indices(len(slice_lengths), self.lengths[:-1])
-
-        return zip(indices, slice_lengths, slice_vals)
-
-    def to_dense(self) -> np.ndarray:
-        """Returns a dense view of this nested ragged tensor.
-
-        Examples:
-            >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
-            >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
-            >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x.to_dense()
-            array([[[ 1,  0,  0,  0],
-                    [ 2,  3,  0,  0],
-                    [ 0,  0,  0,  0]],
-            <BLANKLINE>
-                   [[ 4,  5,  6,  0],
-                    [ 7,  8,  9, 10],
-                    [11,  0,  0,  0]],
-            <BLANKLINE>
-                   [[12,  0,  0,  0],
-                    [ 0,  0,  0,  0],
-                    [ 0,  0,  0,  0]]])
-            >>> lengths = [np.array([1, 2, 1])]
-            >>> bounds = [np.array([1, 3, 4])]
-            >>> vals = np.array([1, 2, 3, 4])
-            >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x.to_dense()
-            array([[1, 0],
-                   [2, 3],
-                   [4, 0]])
-        """
-        out = np.zeros(self.shape, dtype=self.dtype)
-        for sl, ln, vals in self._iter_slices():
-            sl = tuple(sl) + (slice(None, ln),)
-            out[sl] = vals
-
-        return out
+    def _empty_dense_tensor(self) -> TENSOR_T:
+        return np.zeros(self.shape, dtype=self.dtype)
 
     @classmethod
-    def concatenate(cls, tensors: list) -> "RaggedTensor":
-        """Concatenates the passed tensors along the first dimension.
-
-        Args:
-            tensors: The other tensors to concatenate with. Must be sequence like.
-
-        Examples:
-            >>> lengths1 = [np.array([2, 3, 2]), np.array([1, 2, 3, 4,  1,  1,  2])]
-            >>> bounds1  = [np.array([2, 5, 7]), np.array([1, 3, 6, 10, 11, 12, 14])]
-            >>> vals1 = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
-            >>> x1 = RaggedTensor(lengths1, bounds1, vals1)
-            >>> x1.to_dense()
-            array([[[ 1,  0,  0,  0],
-                    [ 2,  3,  0,  0],
-                    [ 0,  0,  0,  0]],
-            <BLANKLINE>
-                   [[ 4,  5,  6,  0],
-                    [ 7,  8,  9, 10],
-                    [11,  0,  0,  0]],
-            <BLANKLINE>
-                   [[12,  0,  0,  0],
-                    [13, 14,  0,  0],
-                    [ 0,  0,  0,  0]]])
-            >>> lengths2 = [np.array([1, 4]), np.array([1, 2, 2, 1, 2])]
-            >>> bounds2  = [np.array([1, 5]), np.array([1, 3, 5, 6, 8])]
-            >>> vals2 = np.array([15, 16, 17, 18, 19, 20, 21, 22])
-            >>> x2 = RaggedTensor(lengths2, bounds2, vals2)
-            >>> x2.to_dense()
-            array([[[15,  0],
-                    [ 0,  0],
-                    [ 0,  0],
-                    [ 0,  0]],
-            <BLANKLINE>
-                   [[16, 17],
-                    [18, 19],
-                    [20,  0],
-                    [21, 22]]])
-            >>> RaggedTensor.concatenate([x1, x2]).to_dense()
-            array([[[ 1,  0,  0,  0],
-                    [ 2,  3,  0,  0],
-                    [ 0,  0,  0,  0],
-                    [ 0,  0,  0,  0]],
-            <BLANKLINE>
-                   [[ 4,  5,  6,  0],
-                    [ 7,  8,  9, 10],
-                    [11,  0,  0,  0],
-                    [ 0,  0,  0,  0]],
-            <BLANKLINE>
-                   [[12,  0,  0,  0],
-                    [13, 14,  0,  0],
-                    [ 0,  0,  0,  0],
-                    [ 0,  0,  0,  0]],
-            <BLANKLINE>
-                   [[15,  0,  0,  0],
-                    [ 0,  0,  0,  0],
-                    [ 0,  0,  0,  0],
-                    [ 0,  0,  0,  0]],
-            <BLANKLINE>
-                   [[16, 17,  0,  0],
-                    [18, 19,  0,  0],
-                    [20,  0,  0,  0],
-                    [21, 22,  0,  0]]])
-            >>> RaggedTensor.concatenate([x1, x2])[2:].to_dense()
-            array([[[12,  0],
-                    [13, 14],
-                    [ 0,  0],
-                    [ 0,  0]],
-            <BLANKLINE>
-                   [[15,  0],
-                    [ 0,  0],
-                    [ 0,  0],
-                    [ 0,  0]],
-            <BLANKLINE>
-                   [[16, 17],
-                    [18, 19],
-                    [20,  0],
-                    [21, 22]]])
-        """
-
-        if len(tensors) == 1:
-            return tensors[0]
-        elif len(tensors) == 0:
-            raise ValueError("Can't concatenate an empty list!")
-
-        T1 = tensors[0]
-        T2 = cls.concatenate(tensors[1:])
-
-        if T1.n_dims != T2.n_dims:
-            raise ValueError(f"Tensor dim inconsistent! {T1.n_dims} != {T2.n_dims}")
-
-        new_lengths = [np.concatenate((t1, t2), axis=0) for t1, t2 in zip(T1.lengths, T2.lengths)]
-        new_bounds = [np.concatenate((t1, t2 + t1[-1]), axis=0) for t1, t2 in zip(T1.bounds, T2.bounds)]
-        new_vals = np.concatenate((T1.vals, T2.vals), axis=0)
-        return RaggedTensor(new_lengths, new_bounds, new_vals)
-
-    @staticmethod
-    def _get_lengths_and_values(
-        T: NESTED_NUM_LIST, curr_lengths: list[list[int]] = None
-    ) -> tuple[list[list[int]], list]:
-        """Returns the lengths, bounds, and values of a nested list as flat, 1D tensors.
-
-        Args:
-            T: A nested list of values.
-            curr_lengths: The running lengths of the nested list being constructed through recursion.
-            curr_bound_diffs: The running bound differences of the nested list being constructed through
-                recursion.
-
-        Examples:
-            >>> RaggedTensor._get_lengths_and_values([1, 2, 3])
-            (None, [1, 2, 3])
-            >>> RaggedTensor._get_lengths_and_values([[1, 2, 3], [3, 4]])
-            ([[3, 2]], [[1, 2, 3], [3, 4]])
-            >>> RaggedTensor._get_lengths_and_values([[[1, 2, 3], [3, 4]], [[3], [3, 2, 2], [3, 5]]])
-            ([[2, 3], [3, 2, 1, 3, 2]], [[1, 2, 3], [3, 4], [3], [3, 2, 2], [3, 5]])
-        """
-        if curr_lengths is None:
-            curr_lengths = []
-
-        match T:
-            case list() if is_ndim_list(T, dim=2):
-                return curr_lengths, T
-            case list() if is_ndim_list(T, dim=1):
-                return None, T
-            case list() as Ts:
-                return RaggedTensor._get_lengths_and_values(
-                    list(itertools.chain.from_iterable(Ts)), curr_lengths + [[len(T) for T in Ts]]
-                )
-            case _:
-                raise TypeError(
-                    f"T must be list of numbers or a nested list of lists. Got {type(T)}[{type(T[0])}]"
-                )
+    def _tensor_0dim_concatenate(cls, Ts: Sequence[TENSOR_T]) -> TENSOR_T:
+        return np.concatenate(Ts, axis=0) 
 
     @classmethod
-    def from_nested_list(cls, T: NESTED_NUM_LIST, mode: str = "np") -> "RaggedTensor":
-        """Returns a RaggedTensor from a nested list of values.
+    def _tensor(cls, T: NESTED_NUM_LIST_T | TENSOR_T, **kwargs) -> TENSOR_T:
+        return np.array(T, **kwargs)
 
-        Args:
-            T: A nested list of values.
-
-        Examples:
-            >>> RaggedTensor.from_nested_list([[1, 2, 3], [3, 4]])
-            RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 3 4])
-            >>> RaggedTensor.from_nested_list([1, 2, 3])
-            Traceback (most recent call last):
-                ...
-            ValueError: Passed values are 1D; a ragged tensor is not needed!
-            >>> RaggedTensor.from_nested_list([[[1, 2, 3], [3, 4]], [[3], [3, 2, 2], [3, 5]]]).to_dense()
-            array([[[1, 2, 3],
-                    [3, 4, 0],
-                    [0, 0, 0]],
-            <BLANKLINE>
-                   [[3, 0, 0],
-                    [3, 2, 2],
-                    [3, 5, 0]]])
-        """
-
-        lengths, vals = cls._get_lengths_and_values(T)
-        if lengths == []:
-            raise ValueError("Passed values are 1D; a ragged tensor is not needed!")
-
-        lengths = [np.array(L, dtype=int) for L in lengths]
-        bounds = [np.cumsum(L, axis=0) for L in lengths]
-        vals = np.array(vals)
-
-        return cls(lengths, bounds, vals)
-
+    @classmethod
+    def _tensor_eq(cls, T1: TENSOR_T, T2: TENSOR_T) -> bool:
+        return np.array_equal(T1, T2)
 
 class JointNestedRaggedTensorDict:
     """
@@ -412,7 +183,7 @@ class JointNestedRaggedTensorDict:
     """
 
     def __init__(
-        self, tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST], pre_raggedified: bool = False
+        self, tensors: dict[str, list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T], pre_raggedified: bool = False
     ):
         if pre_raggedified:
             self.tensors = tensors
@@ -425,7 +196,7 @@ class JointNestedRaggedTensorDict:
     def __str__(self) -> str:
         return self.__repr__()
 
-    def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST]):
+    def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T]):
         """Initializes the tensors from lists of raw data entries."""
         self.tensors = {}
         for k, T in tensors.items():
@@ -1007,3 +778,259 @@ class JointNestedRaggedTensorDict:
                     (T1.tensors[f"dim{dim}/{key}"], T2.tensors[f"dim{dim}/{key}"])
                 )
         return cls(out_tensors, pre_raggedified=True)
+
+class JointNestedRaggedTensorDict(JointNestedRaggedTensorBaseDict[np.ndarray]):
+    """
+    Stores tensors internally in the following dictionary structure:
+    {
+        "dim0/vals": {vals_tensor} # A true 1D tensor in raw tensor form. No associated lengths/bounds.
+        "dim1/lengths": 1D_lengths, # lengths at the 1st dimensionality level
+        "dim1/bounds": 1D_bounds,
+        "dim1/{vals_key}": {vals_tensor}, # A variety of 2D ragged values tensors governed by the 1D lengths.
+        "dim2/lengths": 2D_lengths, # lengths at the 2nd dimensionality level
+        ...
+    }
+
+    Examples:
+        >>> import tempfile
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> with tempfile.TemporaryDirectory() as dirpath:
+        ...     fp = Path(dirpath) / "tensors.pt"
+        ...     J.save(fp)
+        ...     J2 = JointNestedRaggedTensorDict.load(fp)
+        >>> assert J.keys() == J2.keys()
+        >>> for k in J.keys(): assert (J[k].to_dense() == J2[k].to_dense()).all()
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> J.max_n_dims
+        3
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> J.min_n_dims
+        2
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> assert J.keys() == {'id', 'T', 'val'}
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> J._get_dim("T")
+        1
+        >>> J._get_dim("id")
+        2
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> J._get_key("T")
+        RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 4 5])
+        >>> J._get_key("id") # doctest: +NORMALIZE_WHITESPACE
+        RaggedTensor([array([3, 2]), array([3, 2, 2, 1, 3])],
+                     [array([3, 5]), array([ 3,  5,  7,  8, 11])],
+                     [1 2 3 3 4 1 2 3 3 2 2])
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> assert J.keys_at_dim(1) == {'T'}
+        >>> assert J.keys_at_dim(2) == {'id', 'val'}
+        >>> J.keys_at_dim(0)
+        set()
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> J["T"]
+        RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 4 5])
+        >>> as_dense = J[1].to_dense()
+        >>> assert as_dense.keys() == {'T', 'id', 'val'}
+        >>> as_dense['T']
+        array([4, 5])
+        >>> as_dense['id']
+        array([[3, 0, 0],
+               [3, 2, 2]])
+        >>> as_dense['val']
+        array([[3. , 0. , 0. ],
+               [3.3, 2. , 0. ]])
+        >>> as_dense = J[0].to_dense()
+        >>> assert as_dense.keys() == {'T', 'id', 'val'}
+        >>> as_dense['T']
+        array([1, 2, 3])
+        >>> as_dense['id']
+        array([[1, 2, 3],
+               [3, 4, 0],
+               [1, 2, 0]])
+        >>> as_dense['val']
+        array([[1. , 0.2, 0. ],
+               [3.1, 0. , 0. ],
+               [1. , 2.2, 0. ]])
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T": [[1, 2, 3], [4, 5]],
+        ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+        ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+        ... })
+        >>> dense_dict = J.to_dense()
+        >>> assert dense_dict.keys() == {'T', 'id', 'val'}
+        >>> dense_dict['T']
+        array([[1, 2, 3],
+               [4, 5, 0]])
+        >>> dense_dict['id']
+        array([[[1, 2, 3],
+                [3, 4, 0],
+                [1, 2, 0]],
+        <BLANKLINE>
+               [[3, 0, 0],
+                [3, 2, 2],
+                [0, 0, 0]]])
+        >>> dense_dict['val']
+        array([[[1. , 0.2, 0. ],
+                [3.1, 0. , 0. ],
+                [1. , 2.2, 0. ]],
+        <BLANKLINE>
+               [[3. , 0. , 0. ],
+                [3.3, 2. , 0. ],
+                [0. , 0. , 0. ]]])
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T": [[1, 2, 3], [4, 5]],
+        ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+        ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+        ... })
+        >>> dense_dict = J.unsqueeze(dim=0).to_dense()
+        >>> assert dense_dict.keys() == {'T', 'id', 'val'}
+        >>> dense_dict['T']
+        array([[[1, 2, 3],
+                [4, 5, 0]]])
+        >>> dense_dict['id']
+        array([[[[1, 2, 3],
+                 [3, 4, 0],
+                 [1, 2, 0]],
+        <BLANKLINE>
+                [[3, 0, 0],
+                 [3, 2, 2],
+                 [0, 0, 0]]]])
+        >>> dense_dict['val']
+        array([[[[1. , 0.2, 0. ],
+                 [3.1, 0. , 0. ],
+                 [1. , 2.2, 0. ]],
+        <BLANKLINE>
+                [[3. , 0. , 0. ],
+                 [3.3, 2. , 0. ],
+                 [0. , 0. , 0. ]]]])
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T": [[1, 2, 3], [4, 5]],
+        ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+        ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+        ... })
+        >>> shape_dict = J.shape
+        >>> assert shape_dict.keys() == {'T', 'id', 'val'}
+        >>> shape_dict['T']
+        (2, 3)
+        >>> shape_dict['id']
+        (2, 3, 3)
+        >>> shape_dict['val']
+        (2, 3, 3)
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T": [[1, 2, 3], [4, 5]],
+        ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+        ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+        ... })
+        >>> len(J)
+        2
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "T": [[1, 2, 3], [4, 5]],
+        ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+        ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+        ... })
+        >>> stacked = JointNestedRaggedTensorDict.vstack([J[0], J[1]])
+        >>> dense_dict = stacked.to_dense()
+        >>> assert dense_dict.keys() == {'T', 'id', 'val'}
+        >>> dense_dict['T']
+        array([[1, 2, 3],
+               [4, 5, 0]])
+        >>> dense_dict['id']
+        array([[[1, 2, 3],
+                [3, 4, 0],
+                [1, 2, 0]],
+        <BLANKLINE>
+               [[3, 0, 0],
+                [3, 2, 2],
+                [0, 0, 0]]])
+        >>> dense_dict['val']
+        array([[[1. , 0.2, 0. ],
+                [3.1, 0. , 0. ],
+                [1. , 2.2, 0. ]],
+        <BLANKLINE>
+               [[3. , 0. , 0. ],
+                [3.3, 2. , 0. ],
+                [0. , 0. , 0. ]]])
+        >>> J1 = JointNestedRaggedTensorDict({
+        ...     "T": [[1, 2, 3], [4, 5]],
+        ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+        ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+        ... })
+        >>> J2 = JointNestedRaggedTensorDict({
+        ...     "T": [[6, 7, 8, 9]],
+        ...     "id": [[[3], [3, 2, 2], [1], [1]]],
+        ...     "val": [[[3], [4., 2., 0], [0], [3.]]],
+        ... })
+        >>> concatenated = JointNestedRaggedTensorDict.concatenate([J1, J2])
+        >>> dense_dict = concatenated.to_dense()
+        >>> assert dense_dict.keys() == {'T', 'id', 'val'}
+        >>> dense_dict['T']
+        array([[1, 2, 3, 0],
+               [4, 5, 0, 0],
+               [6, 7, 8, 9]])
+        >>> dense_dict['id']
+        array([[[1, 2, 3],
+                [3, 4, 0],
+                [1, 2, 0],
+                [0, 0, 0]],
+        <BLANKLINE>
+               [[3, 0, 0],
+                [3, 2, 2],
+                [0, 0, 0],
+                [0, 0, 0]],
+        <BLANKLINE>
+               [[3, 0, 0],
+                [3, 2, 2],
+                [1, 0, 0],
+                [1, 0, 0]]])
+        >>> dense_dict['val']
+        array([[[1. , 0.2, 0. ],
+                [3.1, 0. , 0. ],
+                [1. , 2.2, 0. ],
+                [0. , 0. , 0. ]],
+        <BLANKLINE>
+               [[3. , 0. , 0. ],
+                [3.3, 2. , 0. ],
+                [0. , 0. , 0. ],
+                [0. , 0. , 0. ]],
+        <BLANKLINE>
+               [[3. , 0. , 0. ],
+                [4. , 2. , 0. ],
+                [0. , 0. , 0. ],
+                [3. , 0. , 0. ]]])
+    """
+
+    BASE_TENSOR_CLS = RaggedTensor
+    SAVE_FN = save_file
+    LOAD_FN = load_file
+
