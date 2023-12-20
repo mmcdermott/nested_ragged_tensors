@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import itertools
-from collections.abc import Generator
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 from safetensors.numpy import load_file, save_file
-from typing import Sequence
-
-from .utils import get_ragged_indices, is_ndim_list
 
 NP_FLOAT_TYPES = (np.float16, np.float32, np.float64)
 NP_INT_TYPES = (np.int8, np.int16, np.int32, np.int64)
@@ -16,6 +13,43 @@ NP_UINT_TYPES = (np.uint8, np.uint16, np.uint32, np.uint64)
 
 NUM_T = int | float
 NESTED_NUM_LIST = list["NESTED_NUM_LIST"] | NUM_T
+
+
+def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
+    """Checks if ``L`` is a nested list of ``dim`` dimensions.
+
+    Args:
+        L: The list to be checked.
+        dim: The target dimension of the list.
+
+    Examples:
+        >>> is_ndim_list([1, 2, 3], dim=1)
+        True
+        >>> is_ndim_list([[1, 2], [4]], dim=2)
+        True
+        >>> is_ndim_list([[1, 2], [4]], dim=1)
+        False
+        >>> is_ndim_list([[[1, 2], [4]], [np.array([1, 2, 3])]], dim=3)
+        True
+        >>> is_ndim_list([[[1, 2], np.array([4])]], dim=0)
+        Traceback (most recent call last):
+            ...
+        ValueError: dim must be positive, but got 0
+    """
+
+    if dim <= 0:
+        raise ValueError(f"dim must be positive, but got {dim}")
+
+    match L:
+        case np.ndarray():
+            return L.ndim == dim
+        case list() if dim == 1:
+            return all(isinstance(x, (int, float)) for x in L)
+        case list():
+            return all(is_ndim_list(x, dim - 1) for x in L)
+        case _:
+            return False
+
 
 class JointNestedRaggedTensorDict:
     """
@@ -34,7 +68,7 @@ class JointNestedRaggedTensorDict:
         self,
         tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST],
         schema: dict[str, np.dtype] | None = None,
-        pre_raggedified: bool = False
+        pre_raggedified: bool = False,
     ):
         self.schema = schema if schema is not None else {}
         if pre_raggedified:
@@ -92,7 +126,7 @@ class JointNestedRaggedTensorDict:
         mx, mn = max(vals), min(vals)
 
         if any(isinstance(v, (float,) + NP_FLOAT_TYPES) for v in vals):
-            valid_Ts = [np.float32] # We only support 32-bit floats at the moment to avoid loss of precision.
+            valid_Ts = [np.float32]  # We only support 32-bit floats at the moment to avoid loss of precision.
             tinfo_fn = np.finfo
         elif all(isinstance(v, (int,) + NP_INT_TYPES + NP_UINT_TYPES) for v in vals):
             tinfo_fn = np.iinfo
@@ -116,7 +150,7 @@ class JointNestedRaggedTensorDict:
         for k, T in tensors.items():
             if not isinstance(T[0], (list, tuple)):
                 dim_str = "dim0"
-                if k not in self.schema: 
+                if k not in self.schema:
                     self.schema[k] = self._infer_dtype(T)
                 self.tensors[f"{dim_str}/{k}"] = np.array(T, dtype=self.schema[k])
                 continue
@@ -132,7 +166,7 @@ class JointNestedRaggedTensorDict:
 
             vals = [np.array(v, dtype=self.schema[k]) for v in vals]
 
-            dim_str = f"dim0"
+            dim_str = "dim0"
             for i, L in enumerate(lengths):
                 dim_str = f"dim{i+1}"
 
@@ -157,10 +191,7 @@ class JointNestedRaggedTensorDict:
     @property
     def _tensors_with_flat_values(self) -> dict[str, np.ndarray]:
         """Returns the tensors with flat values."""
-        return {
-            k: v if isinstance(v, np.ndarray) else np.concatenate(v, 0)
-            for k, v in self.tensors.items()
-        }
+        return {k: v if isinstance(v, np.ndarray) else np.concatenate(v, 0) for k, v in self.tensors.items()}
 
     @classmethod
     def load(cls, fp: Path) -> JointNestedRaggedTensorDict:
@@ -379,7 +410,6 @@ class JointNestedRaggedTensorDict:
 
                     st_i = 0 if st_i == 0 else B[st_i - 1]
                     end_i = B[end_i - 1] if end_i is not None else B[-1]
-
 
                 return JointNestedRaggedTensorDict(out_tensors, schema=self.schema, pre_raggedified=True)
             case _:
