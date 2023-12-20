@@ -1,9 +1,12 @@
 import copy
 import itertools
 from pathlib import Path
+from typing import Generator, Sequence
 
 import numpy as np
 from safetensors.numpy import load_file, save_file
+
+from .utils import get_ragged_indices
 
 NUM_T = int | float
 NESTED_NUM_LIST = list["NESTED_NUM_LIST"] | NUM_T
@@ -15,7 +18,6 @@ class RaggedTensor:
         lengths: list[np.ndarray],
         bounds: list[np.ndarray],
         vals: np.ndarray,
-        bound_offsets: np.ndarray | None = None,
     ):
         self.lengths = lengths
         self.bounds = bounds
@@ -28,12 +30,8 @@ class RaggedTensor:
         if len(bounds) != (self.n_dims - 1):
             raise ValueError(f"Tensor dim inconsistent! {self.n_dims - 1} != {len(bounds)}")
 
-        if bound_offsets is None:
-            bound_offsets = np.zeros((self.n_dims - 1,), dtype=np.int64)
-        self.bound_offsets = bound_offsets
-
     def __repr__(self) -> str:
-        return f"RaggedTensor({self.lengths}, {self.bounds}, {self.vals}, {self.bound_offsets})"
+        return f"RaggedTensor({self.lengths}, {self.bounds}, {self.vals})"
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -47,7 +45,7 @@ class RaggedTensor:
             >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
             >>> x = RaggedTensor(lengths, bounds, vals)
             >>> x[0]
-            RaggedTensor([array([1, 2])], [array([1, 3])], [1 2 3], [0])
+            RaggedTensor([array([1, 2])], [array([1, 3])], [1 2 3])
             >>> x[0].to_dense()
             array([[1, 0],
                    [2, 3]])
@@ -79,7 +77,7 @@ class RaggedTensor:
                 if out.n_dims == 2:
                     return out.vals
                 else:
-                    return RaggedTensor(out.lengths[1:], out.bounds[1:], out.vals, out.bound_offsets[1:])
+                    return RaggedTensor(out.lengths[1:], out.bounds[1:], out.vals)
             case slice() as S:
                 st_i = 0 if S.start is None else S.start
                 end_i = S.stop
@@ -87,22 +85,21 @@ class RaggedTensor:
                 if S.step not in (None, 1):
                     raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
 
-                offset = 0
                 new_lengths = []
                 new_bounds = []
-                new_bound_offsets = self.bound_offsets.copy()
                 for j, (L, B) in enumerate(zip(self.lengths, self.bounds)):
-                    new_lengths.append(L[st_i:end_i])
-                    new_bounds.append(B[st_i:end_i])  # Could track the offset rather than subbing
-                    new_bound_offsets[j] += offset
+                    if st_i == 0: offset = 0
+                    else: offset = B[st_i - 1]
 
-                    st_i = 0 if st_i == 0 else B[st_i - 1] - self.bound_offsets[j]
-                    end_i = (B[end_i - 1] if end_i is not None else B[-1]) - self.bound_offsets[j]
-                    offset = self.bound_offsets[j] + st_i
+                    new_lengths.append(L[st_i:end_i])
+                    new_bounds.append(B[st_i:end_i] - offset) # Could track the offset instead
+
+                    st_i = 0 if st_i == 0 else B[st_i - 1]
+                    end_i = (B[end_i - 1] if end_i is not None else B[-1])
 
                 new_vals = self.vals[st_i:end_i]
 
-                return RaggedTensor(new_lengths, new_bounds, new_vals, new_bound_offsets)
+                return RaggedTensor(new_lengths, new_bounds, new_vals)
             case _:
                 raise TypeError(f"{type(idx)} not supported for RaggedTensor.__getitem__")
 
@@ -168,48 +165,33 @@ class RaggedTensor:
             out_shape.append(L.max().item())
         return tuple(out_shape)
 
-    @property
-    def indices(self) -> list[tuple[int]]:
-        """Returns the indices the values of this tensor would occupy in a dense view.
+    def _iter_slices(self) -> Generator[tuple[tuple[int], int, np.ndarray], None, None]:
+        """Returns a list of the indices and lengths of the slices this would have in a dense view.
 
         Examples:
             >>> lengths = [np.array([2, 3, 1]), np.array([1, 2, 3, 4, 1, 1])]
             >>> bounds = [np.array([2, 5, 6]), np.array([1, 3, 6, 10, 11, 12])]
             >>> vals = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
             >>> x = RaggedTensor(lengths, bounds, vals)
-            >>> x.indices # doctest: +NORMALIZE_WHITESPACE
-            [(0, 0, 0), (0, 1, 0), (0, 1, 1),
-             (1, 0, 0), (1, 0, 1), (1, 0, 2), (1, 1, 0), (1, 1, 1), (1, 1, 2), (1, 1, 3), (1, 2, 0),
-             (2, 0, 0)]
+            >>> list(x._iter_slices()) # doctest: +NORMALIZE_WHITESPACE
+            [((0, 0), 1, array([1])),
+             ((0, 1), 2, array([2, 3])),
+             ((1, 0), 3, array([4, 5, 6])),
+             ((1, 1), 4, array([ 7,  8,  9, 10])),
+             ((1, 2), 1, array([11])),
+             ((2, 0), 1, array([12]))]
         """
-        indices = []
-        running_idx = [0] + [0 for _ in range(self.n_dims - 1)]
+        # Get slice lengths
+        slice_lengths = self.lengths[-1]
 
-        lengths = copy.deepcopy([[len(self.lengths)]] + self.lengths)
+        # Get slice value splits
+        bounds = np.concatenate(([0], self.bounds[-1]), 0)
+        slice_vals = (self.vals[b:e] for b, e in zip(bounds[:-1], bounds[1:]))
 
-        slice_els_left = [L[0] for L in lengths]
-        Ls_index = [0 for _ in lengths]
-        for val_idx in range(self.n_values - 1):
-            slice_idx = self.n_dims - 1
+        # Get slice indices
+        indices = get_ragged_indices(len(slice_lengths), self.lengths[:-1])
 
-            indices.append(tuple(running_idx))
-
-            while slice_els_left[slice_idx] == 1 and slice_idx != 0:
-                running_idx[slice_idx] = 0
-                Ls_index[slice_idx] = Ls_index[slice_idx] + 1
-                try:
-                    slice_els_left[slice_idx] = lengths[slice_idx][Ls_index[slice_idx]]
-                except Exception as e:
-                    raise ValueError(f"{slice_els_left}, {slice_idx}, {Ls_index}, {lengths}") from e
-                slice_idx -= 1
-
-            slice_els_left[slice_idx] = slice_els_left[slice_idx] - 1
-            running_idx[slice_idx] = running_idx[slice_idx] + 1
-
-        # The last element
-        indices.append(tuple(running_idx))
-
-        return indices
+        return zip(indices, slice_lengths, slice_vals)
 
     def to_dense(self) -> np.ndarray:
         """Returns a dense view of this nested ragged tensor.
@@ -241,17 +223,11 @@ class RaggedTensor:
                    [4, 0]])
         """
         out = np.zeros(self.shape, dtype=self.dtype)
-        indices = tuple(zip(*self.indices))
+        for sl, ln, vals in self._iter_slices():
+            sl = tuple(sl) + (slice(None, ln),)
+            out[sl] = vals
 
-        out[indices] = self.vals
         return out
-
-    def _reset_offset(self):
-        """Resets the stored bounds offset to zero and adjusts the bounds variable appropriately."""
-
-        for i in range(self.n_dims - 1):
-            self.bounds[i] = self.bounds[i] - self.bound_offsets[i]
-            self.bound_offsets[i] = 0
 
     @classmethod
     def concatenate(cls, tensors: list) -> "RaggedTensor":
@@ -344,9 +320,6 @@ class RaggedTensor:
         if T1.n_dims != T2.n_dims:
             raise ValueError(f"Tensor dim inconsistent! {T1.n_dims} != {T2.n_dims}")
 
-        T1._reset_offset()
-        T2._reset_offset()
-
         new_lengths = [np.concatenate((t1, t2), axis=0) for t1, t2 in zip(T1.lengths, T2.lengths)]
         new_bounds = [np.concatenate((t1, t2 + t1[-1]), axis=0) for t1, t2 in zip(T1.bounds, T2.bounds)]
         new_vals = np.concatenate((T1.vals, T2.vals), axis=0)
@@ -398,7 +371,7 @@ class RaggedTensor:
 
         Examples:
             >>> RaggedTensor.from_nested_list([[1, 2, 3], [3, 4]])
-            RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 3 4], [0])
+            RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 3 4])
             >>> RaggedTensor.from_nested_list([1, 2, 3])
             Traceback (most recent call last):
                 ...
@@ -503,9 +476,9 @@ class JointNestedRaggedTensorDict:
         Examples:
             >>> import tempfile
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> with tempfile.TemporaryDirectory() as dirpath:
             ...     fp = Path(dirpath) / "tensors.pt"
@@ -522,9 +495,9 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> J.max_n_dims
             3
@@ -537,9 +510,9 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> J.min_n_dims
             2
@@ -551,9 +524,9 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> assert J.keys() == {'id', 'T', 'val'}
         """
@@ -568,9 +541,9 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> J._get_dim("T")
             1
@@ -588,17 +561,16 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> J._get_key("T")
-            RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 4 5], [0])
+            RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 4 5])
             >>> J._get_key("id") # doctest: +NORMALIZE_WHITESPACE
             RaggedTensor([array([3, 2]), array([3, 2, 2, 1, 3])],
                          [array([3, 5]), array([ 3,  5,  7,  8, 11])],
-                         [1 2 3 3 4 1 2 3 3 2 2],
-                         [0 0])
+                         [1 2 3 3 4 1 2 3 3 2 2])
         """
         dim = self._get_dim(key)
 
@@ -616,9 +588,9 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> assert J.keys_at_dim(1) == {'T'}
             >>> assert J.keys_at_dim(2) == {'id', 'val'}
@@ -636,12 +608,22 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> J["T"]
-            RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 4 5], [0])
+            RaggedTensor([array([3, 2])], [array([3, 5])], [1 2 3 4 5])
+            >>> as_dense = J[1].to_dense()
+            >>> assert as_dense.keys() == {'T', 'id', 'val'}
+            >>> as_dense['T']
+            array([4, 5])
+            >>> as_dense['id']
+            array([[3, 0, 0],
+                   [3, 2, 2]])
+            >>> as_dense['val']
+            array([[3. , 0. , 0. ],
+                   [3.3, 2. , 0. ]])
             >>> as_dense = J[0].to_dense()
             >>> assert as_dense.keys() == {'T', 'id', 'val'}
             >>> as_dense['T']
@@ -654,16 +636,6 @@ class JointNestedRaggedTensorDict:
             array([[1. , 0.2, 0. ],
                    [3.1, 0. , 0. ],
                    [1. , 2.2, 0. ]])
-            >>> as_dense = J[1].to_dense()
-            >>> assert as_dense.keys() == {'T', 'id', 'val'}
-            >>> as_dense['T']
-            array([4, 5])
-            >>> as_dense['id']
-            array([[3, 0, 0],
-                   [3, 2, 2]])
-            >>> as_dense['val']
-            array([[3. , 0. , 0. ],
-                   [3.3, 2. , 0. ]])
         """
         match idx:
             case str() as key:
@@ -695,22 +667,20 @@ class JointNestedRaggedTensorDict:
                 if S.step not in (None, 1):
                     raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
 
-                offset = 0
                 out_tensors = {}
                 for dim in range(self.max_n_dims):
                     if dim != 0:
                         L = self.tensors[f"dim{dim}/lengths"]
                         B = self.tensors[f"dim{dim}/bounds"]
 
+                        if st_i == 0: offset = 0
+                        else: offset = B[st_i - 1]
+
                         out_tensors[f"dim{dim}/lengths"] = L[st_i:end_i]
                         out_tensors[f"dim{dim}/bounds"] = B[st_i:end_i] - offset
 
                         st_i = 0 if st_i == 0 else B[st_i - 1]
-                        try:
-                            end_i = B[end_i - 1] if end_i is not None else B[-1]
-                        except IndexError as e:
-                            raise ValueError(f"Failed to index with {type(end_i)}({end_i})") from e
-                        offset += st_i
+                        end_i = B[end_i - 1] if end_i is not None else B[-1]
 
                     for key in self.keys_at_dim(dim):
                         out_tensors[f"dim{dim}/{key}"] = self.tensors[f"dim{dim}/{key}"][st_i:end_i]
