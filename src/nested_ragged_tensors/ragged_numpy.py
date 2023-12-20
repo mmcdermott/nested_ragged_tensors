@@ -336,7 +336,6 @@ class JointNestedRaggedTensorDict:
             ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... }, schema={"T": int, "id": int, "val": float})
             >>> as_dense = J[1].to_dense()
-            >>> assert as_dense.keys() == {'T', 'id', 'val'}
             >>> as_dense['T']
             array([4, 5])
             >>> as_dense['id']
@@ -346,7 +345,6 @@ class JointNestedRaggedTensorDict:
             array([[3. , 0. , 0. ],
                    [3.3, 2. , 0. ]])
             >>> as_dense = J[0].to_dense()
-            >>> assert as_dense.keys() == {'T', 'id', 'val'}
             >>> as_dense['T']
             array([1, 2, 3])
             >>> as_dense['id']
@@ -425,10 +423,21 @@ class JointNestedRaggedTensorDict:
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
             ... })
             >>> dense_dict = J.to_dense()
-            >>> assert dense_dict.keys() == {'T', 'id', 'val'}
+            >>> assert dense_dict.keys() == {'T', 'id', 'val', 'dim1/mask', 'dim2/mask'}
+            >>> dense_dict['dim1/mask']
+            array([[ True,  True,  True],
+                   [ True,  True, False]])
             >>> dense_dict['T']
             array([[1, 2, 3],
                    [4, 5, 0]], dtype=uint8)
+            >>> dense_dict['dim2/mask']
+            array([[[ True,  True,  True],
+                    [ True,  True, False],
+                    [ True,  True, False]],
+            <BLANKLINE>
+                   [[ True, False, False],
+                    [ True,  True,  True],
+                    [False, False, False]]])
             >>> dense_dict['id']
             array([[[1, 2, 3],
                     [3, 4, 0],
@@ -465,6 +474,11 @@ class JointNestedRaggedTensorDict:
 
             shape.append(max(L))
 
+            if self.keys_at_dim(dim):
+                out[f"dim{dim}/mask"] = np.zeros(shape=tuple(shape), dtype=bool)
+                for idx, ln in zip(indices, L):
+                    out[f"dim{dim}/mask"][idx + (slice(None, ln),)] = True
+
             for key in self.keys_at_dim(dim):
                 slice_vals = self.tensors[f"dim{dim}/{key}"]
                 if not slice_vals:
@@ -492,7 +506,6 @@ class JointNestedRaggedTensorDict:
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
             ... }, schema={"T": int, "id": int, "val": float})
             >>> dense_dict = J.unsqueeze(dim=0).to_dense()
-            >>> assert dense_dict.keys() == {'T', 'id', 'val'}
             >>> dense_dict['T']
             array([[[1, 2, 3],
                     [4, 5, 0]]])
@@ -562,7 +575,6 @@ class JointNestedRaggedTensorDict:
             ... }, schema={"T": int, "id": int, "val": float})
             >>> stacked = JointNestedRaggedTensorDict.vstack([J[0], J[1]])
             >>> dense_dict = stacked.to_dense()
-            >>> assert dense_dict.keys() == {'T', 'id', 'val'}
             >>> dense_dict['T']
             array([[1, 2, 3],
                    [4, 5, 0]])
@@ -605,7 +617,6 @@ class JointNestedRaggedTensorDict:
             ... }, schema={"T": int, "id": int, "val": float})
             >>> concatenated = JointNestedRaggedTensorDict.concatenate([J1, J2])
             >>> dense_dict = concatenated.to_dense()
-            >>> assert dense_dict.keys() == {'T', 'id', 'val'}
             >>> dense_dict['T']
             array([[1, 2, 3, 0],
                    [4, 5, 0, 0],
