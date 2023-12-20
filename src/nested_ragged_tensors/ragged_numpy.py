@@ -1,7 +1,6 @@
-import copy
 import itertools
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator, Sequence
 
 import numpy as np
 from safetensors.numpy import load_file, save_file
@@ -88,14 +87,16 @@ class RaggedTensor:
                 new_lengths = []
                 new_bounds = []
                 for j, (L, B) in enumerate(zip(self.lengths, self.bounds)):
-                    if st_i == 0: offset = 0
-                    else: offset = B[st_i - 1]
+                    if st_i == 0:
+                        offset = 0
+                    else:
+                        offset = B[st_i - 1]
 
                     new_lengths.append(L[st_i:end_i])
-                    new_bounds.append(B[st_i:end_i] - offset) # Could track the offset instead
+                    new_bounds.append(B[st_i:end_i] - offset)  # Could track the offset instead
 
                     st_i = 0 if st_i == 0 else B[st_i - 1]
-                    end_i = (B[end_i - 1] if end_i is not None else B[-1])
+                    end_i = B[end_i - 1] if end_i is not None else B[-1]
 
                 new_vals = self.vals[st_i:end_i]
 
@@ -673,8 +674,10 @@ class JointNestedRaggedTensorDict:
                         L = self.tensors[f"dim{dim}/lengths"]
                         B = self.tensors[f"dim{dim}/bounds"]
 
-                        if st_i == 0: offset = 0
-                        else: offset = B[st_i - 1]
+                        if st_i == 0:
+                            offset = 0
+                        else:
+                            offset = B[st_i - 1]
 
                         out_tensors[f"dim{dim}/lengths"] = L[st_i:end_i]
                         out_tensors[f"dim{dim}/bounds"] = B[st_i:end_i] - offset

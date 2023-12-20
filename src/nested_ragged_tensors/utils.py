@@ -1,5 +1,5 @@
-import itertools
-from typing import Generator, Sequence
+from collections.abc import Generator, Sequence
+
 
 def get_ragged_indices(
     num_values: int, nested_lengths: list[Sequence[int]]
@@ -16,7 +16,6 @@ def get_ragged_indices(
             [(0, 0, 0), (0, 1, 0), (0, 1, 1),
              (1, 0, 0), (1, 0, 1), (1, 0, 2), (1, 1, 0), (1, 1, 1), (1, 1, 2), (1, 1, 3), (1, 2, 0),
              (2, 0, 0)]
-
     """
     running_idx = [0 for _ in range(len(nested_lengths) + 1)]
 
