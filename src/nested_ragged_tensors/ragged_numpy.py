@@ -1,11 +1,18 @@
+from __future__ import annotations
+
 import itertools
 from collections.abc import Generator
 from pathlib import Path
 
 import numpy as np
 from safetensors.numpy import load_file, save_file
+from typing import Sequence
 
 from .utils import get_ragged_indices, is_ndim_list
+
+NP_FLOAT_TYPES = (np.float16, np.float32, np.float64)
+NP_INT_TYPES = (np.int8, np.int16, np.int32, np.int64)
+NP_UINT_TYPES = (np.uint8, np.uint16, np.uint32, np.uint64)
 
 NUM_T = int | float
 NESTED_NUM_LIST = list["NESTED_NUM_LIST"] | NUM_T
@@ -23,6 +30,24 @@ class JointNestedRaggedTensorDict:
     }
     """
 
+    def __init__(
+        self,
+        tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST],
+        schema: dict[str, np.dtype] | None = None,
+        pre_raggedified: bool = False
+    ):
+        self.schema = schema if schema is not None else {}
+        if pre_raggedified:
+            self.tensors = tensors
+        else:
+            self._initialize_tensors(tensors)
+
+    def __repr__(self) -> str:
+        return f"JointNestedRaggedTensorDict({self.tensors}, schema={self.schema}, pre_raggedified=True)"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
     @classmethod
     def _get_lengths_and_values(
         cls, T: NESTED_NUM_LIST, curr_lengths: list[list[int]] = None
@@ -37,20 +62,22 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> JointNestedRaggedTensorDict._get_lengths_and_values([1, 2, 3])
-            ([], [1, 2, 3])
+            (None, [1, 2, 3])
             >>> JointNestedRaggedTensorDict._get_lengths_and_values([[1, 2, 3], [3, 4]])
-            ([[3, 2]], [1, 2, 3, 3, 4])
+            ([[3, 2]], [[1, 2, 3], [3, 4]])
             >>> JointNestedRaggedTensorDict._get_lengths_and_values(
             ...     [[[1, 2, 3], [3, 4]], [[3], [3, 2, 2], [3, 5]]]
             ... )
-            ([[2, 3], [3, 2, 1, 3, 2]], [1, 2, 3, 3, 4, 3, 3, 2, 2, 3, 5])
+            ([[2, 3], [3, 2, 1, 3, 2]], [[1, 2, 3], [3, 4], [3], [3, 2, 2], [3, 5]])
         """
         if curr_lengths is None:
             curr_lengths = []
 
         match T:
+            case list() as Ts if is_ndim_list(Ts, dim=2):
+                return curr_lengths + [[len(T) for T in Ts]], Ts
             case list() if is_ndim_list(T, dim=1):
-                return curr_lengths, T
+                return None, T
             case list() as Ts:
                 return cls._get_lengths_and_values(
                     list(itertools.chain.from_iterable(Ts)), curr_lengths + [[len(T) for T in Ts]]
@@ -60,19 +87,28 @@ class JointNestedRaggedTensorDict:
                     f"T must be list of numbers or a nested list of lists. Got {type(T)}[{type(T[0])}]"
                 )
 
-    def __init__(
-        self, tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST], pre_raggedified: bool = False
-    ):
-        if pre_raggedified:
-            self.tensors = tensors
+    @classmethod
+    def _infer_dtype(cls, vals: Sequence[NUM_T]) -> np.dtype:
+        mx, mn = max(vals), min(vals)
+
+        if any(isinstance(v, (float,) + NP_FLOAT_TYPES) for v in vals):
+            valid_Ts = [np.float32] # We only support 32-bit floats at the moment to avoid loss of precision.
+            tinfo_fn = np.finfo
+        elif all(isinstance(v, (int,) + NP_INT_TYPES + NP_UINT_TYPES) for v in vals):
+            tinfo_fn = np.iinfo
+            if mn >= 0:
+                valid_Ts = NP_UINT_TYPES
+            else:
+                valid_Ts = NP_INT_TYPES
         else:
-            self._initialize_tensors(tensors)
+            raise ValueError("Vals are neither all floats or all ints")
 
-    def __repr__(self) -> str:
-        return f"JointNestedRaggedTensorDict({self.tensors}, pre_raggedified=True)"
-
-    def __str__(self) -> str:
-        return self.__repr__()
+        for t in valid_Ts:
+            if mx > tinfo_fn(t).max or mn < tinfo_fn(t).min:
+                continue
+            else:
+                return t
+        raise ValueError(f"No valid type available for {mn}-{mx}!")
 
     def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST]):
         """Initializes the tensors from lists of raw data entries."""
@@ -80,15 +116,21 @@ class JointNestedRaggedTensorDict:
         for k, T in tensors.items():
             if not isinstance(T[0], (list, tuple)):
                 dim_str = "dim0"
-                self.tensors[f"{dim_str}/{k}"] = np.array(T)
+                if k not in self.schema: 
+                    self.schema[k] = self._infer_dtype(T)
+                self.tensors[f"{dim_str}/{k}"] = np.array(T, dtype=self.schema[k])
                 continue
 
             try:
                 lengths, vals = self._get_lengths_and_values(T)
                 lengths = [np.array(L, dtype=int) for L in lengths]
-                vals = np.array(vals)
             except TypeError as e:
                 raise ValueError(f"Failed to parse {k} as a nested list of numbers!") from e
+
+            if k not in self.schema:
+                self.schema[k] = self._infer_dtype(list(itertools.chain.from_iterable(vals)))
+
+            vals = [np.array(v, dtype=self.schema[k]) for v in vals]
 
             dim_str = f"dim0"
             for i, L in enumerate(lengths):
@@ -99,7 +141,7 @@ class JointNestedRaggedTensorDict:
                     if not np.array_equal(self.tensors[lengths_key], L):
                         raise ValueError(f"Inconsistent lengths tensors! {self.tensors[lengths_key]} vs. {L}")
                 else:
-                    self.tensors[lengths_key] = np.array(L)
+                    self.tensors[lengths_key] = L
                     self.tensors[f"{dim_str}/bounds"] = np.cumsum(L, axis=0)
 
             self.tensors[f"{dim_str}/{k}"] = vals
@@ -110,10 +152,18 @@ class JointNestedRaggedTensorDict:
         Args:
             fp: The path to which the tensors will be saved.
         """
-        save_file(self.tensors, fp)
+        save_file(self._tensors_with_flat_values, fp)
+
+    @property
+    def _tensors_with_flat_values(self) -> dict[str, np.ndarray]:
+        """Returns the tensors with flat values."""
+        return {
+            k: v if isinstance(v, np.ndarray) else np.concatenate(v, 0)
+            for k, v in self.tensors.items()
+        }
 
     @classmethod
-    def load(cls, fp: Path) -> "JointNestedRaggedTensorDict":
+    def load(cls, fp: Path) -> JointNestedRaggedTensorDict:
         """Loads the tensors saved at the given filepath. Does not validate tensor structure.
 
         Args:
@@ -133,11 +183,30 @@ class JointNestedRaggedTensorDict:
             ...     J.save(fp)
             ...     J2 = JointNestedRaggedTensorDict.load(fp)
             >>> assert J.keys() == J2.keys()
-            >>> J = J.to_dense()
-            >>> J2 = J2.to_dense()
-            >>> for k in J.keys(): assert (J[k] == J2[k]).all()
+            >>> for k, v in J.tensors.items():
+            ...     if k.endswith("/lengths") or k.endswith("/bounds"):
+            ...         assert (J.tensors[k] == J2.tensors[k]).all(), f"Tensors at {k} unequal!"
+            ...     else:
+            ...         assert len(J.tensors[k]) == len(J2.tensors[k]), f"Tensors at {k} unequal!"
+            ...         for i, (v1, v2) in enumerate(zip(J.tensors[k], J2.tensors[k])):
+            ...             assert (v1 == v2).all(), f"Tensors at {k}[{i}] unequal!"
         """
-        return cls(load_file(fp), pre_raggedified=True)
+        flat_vals_tensors = load_file(fp)
+        tensors = {}
+        schema = {}
+        for k, v in flat_vals_tensors.items():
+            if k.endswith("/lengths") or k.endswith("/bounds"):
+                tensors[k] = v
+            else:
+                schema[k] = v.dtype
+                dim_str = k.split("/")[0]
+                if dim_str == "dim0":
+                    tensors[k] = v
+                else:
+                    bounds = flat_vals_tensors[f"{dim_str}/bounds"]
+                    tensors[k] = np.split(v, bounds[:-1])
+
+        return cls(tensors, schema=schema, pre_raggedified=True)
 
     @property
     def max_n_dims(self) -> int:
@@ -234,7 +303,7 @@ class JointNestedRaggedTensorDict:
             ...     "T":   [[1,           2,        3       ], [4,   5          ]],
             ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
             ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
-            ... })
+            ... }, schema={"T": int, "id": int, "val": float})
             >>> as_dense = J[1].to_dense()
             >>> assert as_dense.keys() == {'T', 'id', 'val'}
             >>> as_dense['T']
@@ -278,7 +347,7 @@ class JointNestedRaggedTensorDict:
                     new_key = f"dim{dim_int - 1}/{key}"
                     out_tensors[new_key] = T
 
-                return JointNestedRaggedTensorDict(out_tensors, pre_raggedified=True)
+                return JointNestedRaggedTensorDict(out_tensors, schema=self.schema, pre_raggedified=True)
             case slice() as S:
                 st_i = 0 if S.start is None else S.start
                 end_i = S.stop
@@ -288,25 +357,31 @@ class JointNestedRaggedTensorDict:
 
                 out_tensors = {}
                 for dim in range(self.max_n_dims):
-                    if dim != 0:
-                        L = self.tensors[f"dim{dim}/lengths"]
-                        B = self.tensors[f"dim{dim}/bounds"]
+                    if dim == 0:
+                        for key in self.keys_at_dim(dim):
+                            out_tensors[f"dim{dim}/{key}"] = self.tensors[f"dim{dim}/{key}"][st_i:end_i]
+                        continue
 
-                        if st_i == 0:
-                            offset = 0
-                        else:
-                            offset = B[st_i - 1]
-
-                        out_tensors[f"dim{dim}/lengths"] = L[st_i:end_i]
-                        out_tensors[f"dim{dim}/bounds"] = B[st_i:end_i] - offset
-
-                        st_i = 0 if st_i == 0 else B[st_i - 1]
-                        end_i = B[end_i - 1] if end_i is not None else B[-1]
+                    L = self.tensors[f"dim{dim}/lengths"]
+                    out_tensors[f"dim{dim}/lengths"] = L[st_i:end_i]
 
                     for key in self.keys_at_dim(dim):
                         out_tensors[f"dim{dim}/{key}"] = self.tensors[f"dim{dim}/{key}"][st_i:end_i]
 
-                return JointNestedRaggedTensorDict(out_tensors, pre_raggedified=True)
+                    B = self.tensors[f"dim{dim}/bounds"]
+
+                    if st_i == 0:
+                        offset = 0
+                    else:
+                        offset = B[st_i - 1]
+
+                    out_tensors[f"dim{dim}/bounds"] = B[st_i:end_i] - offset
+
+                    st_i = 0 if st_i == 0 else B[st_i - 1]
+                    end_i = B[end_i - 1] if end_i is not None else B[-1]
+
+
+                return JointNestedRaggedTensorDict(out_tensors, schema=self.schema, pre_raggedified=True)
             case _:
                 raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__}.__getitem__")
 
@@ -323,7 +398,7 @@ class JointNestedRaggedTensorDict:
             >>> assert dense_dict.keys() == {'T', 'id', 'val'}
             >>> dense_dict['T']
             array([[1, 2, 3],
-                   [4, 5, 0]])
+                   [4, 5, 0]], dtype=uint8)
             >>> dense_dict['id']
             array([[[1, 2, 3],
                     [3, 4, 0],
@@ -331,7 +406,7 @@ class JointNestedRaggedTensorDict:
             <BLANKLINE>
                    [[3, 0, 0],
                     [3, 2, 2],
-                    [0, 0, 0]]])
+                    [0, 0, 0]]], dtype=uint8)
             >>> dense_dict['val']
             array([[[1. , 0.2, 0. ],
                     [3.1, 0. , 0. ],
@@ -339,41 +414,39 @@ class JointNestedRaggedTensorDict:
             <BLANKLINE>
                    [[3. , 0. , 0. ],
                     [3.3, 2. , 0. ],
-                    [0. , 0. , 0. ]]])
+                    [0. , 0. , 0. ]]], dtype=float32)
+            >>> J[0].to_dense()['T']
+            array([1, 2, 3], dtype=uint8)
         """
-        out = {}
+        out = {key: self.tensors[f"dim0/{key}"][0] for key in self.keys_at_dim(0)}
 
         shape = [len(self)]
-        indices = [(i,) for i in range(len(self))]
+        L = shape
+        indices = [tuple([])]
 
-        for dim in range(self.max_n_dims):
-            if dim == 0:
-                for key in self.keys_at_dim(dim):
-                    out[key] = self.tensors[f"dim{dim}/{key}"]
-                continue
-
-            L = self.tensors[f"dim{dim}/lengths"]
-            B = np.concatenate(([0], self.tensors[f"dim{dim}/bounds"]), 0)
-
-            shape.append(max(L))
-
-            for key in self.keys_at_dim(dim):
-                vals = self.tensors[f"dim{dim}/{key}"]
-                slice_vals = (vals[b:e] for b, e in zip(B[:-1], B[1:]))
-
-                out[key] = np.zeros(shape=tuple(shape), dtype=vals.dtype)
-                for sl, ln, vs in zip(indices, L, slice_vals):
-                    out[key][sl + (slice(None, ln),)] = vs
-
+        for dim in range(1, self.max_n_dims):
             indices = list(
                 itertools.chain.from_iterable(
                     (base_idx + (j,) for j in range(ln)) for base_idx, ln in zip(indices, L)
                 )
             )
 
+            L = self.tensors[f"dim{dim}/lengths"]
+
+            shape.append(max(L))
+
+            for key in self.keys_at_dim(dim):
+                slice_vals = self.tensors[f"dim{dim}/{key}"]
+                if not slice_vals:
+                    continue
+
+                out[key] = np.zeros(shape=tuple(shape), dtype=slice_vals[0].dtype)
+                for idx, ln, vs in zip(indices, L, slice_vals):
+                    out[key][idx + (slice(None, ln),)] = vs
+
         return out
 
-    def unsqueeze(self, dim: int) -> "JointNestedRaggedTensorDict":
+    def unsqueeze(self, dim: int) -> JointNestedRaggedTensorDict:
         """Expands these tensors to have a new, singleton first dimension.
 
         Args:
@@ -387,7 +460,7 @@ class JointNestedRaggedTensorDict:
             ...     "T": [[1, 2, 3], [4, 5]],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
-            ... })
+            ... }, schema={"T": int, "id": int, "val": float})
             >>> dense_dict = J.unsqueeze(dim=0).to_dense()
             >>> assert dense_dict.keys() == {'T', 'id', 'val'}
             >>> dense_dict['T']
@@ -431,7 +504,7 @@ class JointNestedRaggedTensorDict:
 
             for key in self.keys_at_dim(dim):
                 out_tensors[f"dim{new_dim}/{key}"] = self.tensors[f"dim{dim}/{key}"]
-        return self.__class__(out_tensors, pre_raggedified=True)
+        return self.__class__(out_tensors, schema=self.schema, pre_raggedified=True)
 
     def __len__(self) -> int:
         """Returns the length (which is shared across all keys) of these tensors.
@@ -448,7 +521,7 @@ class JointNestedRaggedTensorDict:
         return len(self.tensors["dim1/lengths"])
 
     @classmethod
-    def vstack(cls, tensor_dicts: list) -> "JointNestedRaggedTensorDict":
+    def vstack(cls, tensor_dicts: list) -> JointNestedRaggedTensorDict:
         """Vertically stacks the passed tensors into a new collection on an added 1st dim.
 
         Examples:
@@ -456,7 +529,7 @@ class JointNestedRaggedTensorDict:
             ...     "T": [[1, 2, 3], [4, 5]],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
-            ... })
+            ... }, schema={"T": int, "id": int, "val": float})
             >>> stacked = JointNestedRaggedTensorDict.vstack([J[0], J[1]])
             >>> dense_dict = stacked.to_dense()
             >>> assert dense_dict.keys() == {'T', 'id', 'val'}
@@ -483,7 +556,7 @@ class JointNestedRaggedTensorDict:
         return cls.concatenate([T.unsqueeze(0) for T in tensor_dicts])
 
     @classmethod
-    def concatenate(cls, tensors: list) -> "JointNestedRaggedTensorDict":
+    def concatenate(cls, tensors: list) -> JointNestedRaggedTensorDict:
         """Concatenates these tensors with other identically keyed tensors along the existing first dim.
 
         Args:
@@ -494,12 +567,12 @@ class JointNestedRaggedTensorDict:
             ...     "T": [[1, 2, 3], [4, 5]],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
-            ... })
+            ... }, schema={"T": int, "id": int, "val": float})
             >>> J2 = JointNestedRaggedTensorDict({
             ...     "T": [[6, 7, 8, 9]],
             ...     "id": [[[3], [3, 2, 2], [1], [1]]],
             ...     "val": [[[3], [4., 2., 0], [0], [3.]]],
-            ... })
+            ... }, schema={"T": int, "id": int, "val": float})
             >>> concatenated = JointNestedRaggedTensorDict.concatenate([J1, J2])
             >>> dense_dict = concatenated.to_dense()
             >>> assert dense_dict.keys() == {'T', 'id', 'val'}
@@ -553,6 +626,9 @@ class JointNestedRaggedTensorDict:
         if T1.max_n_dims != T2.max_n_dims:
             raise ValueError(f"Max dims inconsistent! {T1.max_n_dims} != {T2.max_n_dims}")
 
+        if T1.schema != T2.schema:
+            raise ValueError(f"Schema inconsistent! {T1.schema} != {T2.schema}")
+
         out_tensors = {}
 
         for dim in range(T1.max_n_dims):
@@ -572,7 +648,5 @@ class JointNestedRaggedTensorDict:
                 )
 
             for key in T1.keys_at_dim(dim):
-                out_tensors[f"dim{dim}/{key}"] = np.concatenate(
-                    (T1.tensors[f"dim{dim}/{key}"], T2.tensors[f"dim{dim}/{key}"])
-                )
-        return cls(out_tensors, pre_raggedified=True)
+                out_tensors[f"dim{dim}/{key}"] = T1.tensors[f"dim{dim}/{key}"] + T2.tensors[f"dim{dim}/{key}"]
+        return cls(out_tensors, pre_raggedified=True, schema=T1.schema)
