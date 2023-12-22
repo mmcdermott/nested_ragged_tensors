@@ -322,18 +322,33 @@ class JointNestedRaggedTensorDict:
         """
         return {k for k in self.keys() if self._get_dim(k) == dim}
 
-    def __getitem__(self, idx: str | int | slice):
+    def __getitem__(self, idx: int | slice | np.ndarray):
         """Returns either a slice of the tensors in this collection or the tensor at the given key.
 
         Args:
-            idx: The index at which to slice. If a string, returns the (ragged) tensor at that key. If an int
-                or a slice, slices the tensors in this collection accordingly and returns a new collection.
+            idx: The index at which to slice. Returns a ``JointNestedRaggedTensorDict`` whose contents reflect
+                the contents of this object sliced according to ``idx``.
+
+        Returns:
+            * If ``idx`` is an `int` or a `slice` object, this returns a `JointNestedRaggedTensorDict`
+              representing the source tensors as though they were sliced according to ``idx`` in the first
+              dimension. With an `int` index, the resulting tensors will have their dimensionality reduced by
+              one, and this cannot be called on a collection that already has some tensors that are of
+              dimensionality 1 in it.
+            * If ``idx`` is a numpy array of integers, this returns a `JointNestedRaggedTensorDict`
+              that consists of the tensors in this collection sliced at the integer indices in ``idx`` and
+              then re-stacked together. Dimensionality will not be reduced. This behavior is consistent with
+              how the tensors would be sliced under ``idx`` were they dense numpy arrays.
+
+        Raises:
+            TypeError: if ``idx`` is not a supported type
+            ValueError: if ``idx`` is misconfigured (e.g., a numpy array of floats).
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
-            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
-            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+            ...     "T":   [[1,           2,        3       ], [4,   5          ], [6,  7]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]], [[], [8,  9]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]], [[], [1., 0]]],
             ... }, schema={"T": int, "id": int, "val": float})
             >>> as_dense = J[1].to_dense()
             >>> as_dense['T']
@@ -344,19 +359,44 @@ class JointNestedRaggedTensorDict:
             >>> as_dense['val']
             array([[3. , 0. , 0. ],
                    [3.3, 2. , 0. ]])
-            >>> as_dense = J[0].to_dense()
+            >>> as_dense = J[2].to_dense()
             >>> as_dense['T']
-            array([1, 2, 3])
+            array([6, 7])
             >>> as_dense['id']
-            array([[1, 2, 3],
-                   [3, 4, 0],
-                   [1, 2, 0]])
+            array([[0, 0],
+                   [8, 9]])
             >>> as_dense['val']
-            array([[1. , 0.2, 0. ],
-                   [3.1, 0. , 0. ],
-                   [1. , 2.2, 0. ]])
+            array([[0., 0.],
+                   [1., 0.]])
+            >>> J["T"]
+            Traceback (most recent call last):
+                ...
+            TypeError: <class 'str'> not supported for JointNestedRaggedTensorDict.__getitem__
+            >>> as_dense = J[np.array([0, 2])].to_dense()
+            >>> as_dense['T']
+            array([[1, 2, 3],
+                   [6, 7, 0]])
+            >>> as_dense['id']
+            array([[[1, 2, 3],
+                    [3, 4, 0],
+                    [1, 2, 0]],
+            <BLANKLINE>
+                   [[0, 0, 0],
+                    [8, 9, 0],
+                    [0, 0, 0]]])
+            >>> as_dense['val']
+            array([[[1. , 0.2, 0. ],
+                    [3.1, 0. , 0. ],
+                    [1. , 2.2, 0. ]],
+            <BLANKLINE>
+                   [[0. , 0. , 0. ],
+                    [1. , 0. , 0. ],
+                    [0. , 0. , 0. ]]])
+
         """
         match idx:
+            case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES):
+                return self.__class__.vstack([self[int(i)] for i in arr])
             case int() as i:
                 if self.min_n_dims == 1:
                     raise ValueError(
@@ -376,7 +416,7 @@ class JointNestedRaggedTensorDict:
                     new_key = f"dim{dim_int - 1}/{key}"
                     out_tensors[new_key] = T
 
-                return JointNestedRaggedTensorDict(out_tensors, schema=self.schema, pre_raggedified=True)
+                return self.__class__(out_tensors, schema=self.schema, pre_raggedified=True)
             case slice() as S:
                 st_i = 0 if S.start is None else S.start
                 end_i = S.stop
