@@ -425,12 +425,10 @@ class JointNestedRaggedTensorDict:
                     raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
 
                 out_tensors = {}
-                for dim in range(self.max_n_dims):
-                    if dim == 0:
-                        for key in self.keys_at_dim(dim):
-                            out_tensors[f"dim{dim}/{key}"] = self.tensors[f"dim{dim}/{key}"][st_i:end_i]
-                        continue
+                for key in self.keys_at_dim(0):
+                    out_tensors[f"dim0/{key}"] = self.tensors[f"dim0/{key}"][st_i:end_i]
 
+                for dim in range(1, self.max_n_dims):
                     L = self.tensors[f"dim{dim}/lengths"]
                     out_tensors[f"dim{dim}/lengths"] = L[st_i:end_i]
 
