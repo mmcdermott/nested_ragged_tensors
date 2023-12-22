@@ -395,7 +395,7 @@ class JointNestedRaggedTensorDict:
 
         """
         match idx:
-            case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES):
+            case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
                 return self.__class__.vstack([self[int(i)] for i in arr])
             case int() as i:
                 if self.min_n_dims == 1:
@@ -698,36 +698,38 @@ class JointNestedRaggedTensorDict:
         elif len(tensors) == 0:
             raise ValueError("Can't concatenate an empty list!")
 
-        T1 = tensors[0]
-        T2 = cls.concatenate(tensors[1:])
+        out_keys = tensors[0].keys()
+        out_max_n_dims = tensors[0].max_n_dims
+        out_schema = tensors[0].schema
+        out_tensors = tensors[0].tensors
+        out_keys_at_dim = [tensors[0].keys_at_dim(i) for i in range(tensors[0].max_n_dims)]
 
-        if T1.keys() != T2.keys():
-            raise ValueError(f"Keys inconsistent! {T1.keys()} != {T2.keys()}")
+        for T in tensors[1:]:
+            if T.keys() != out_keys:
+                raise ValueError(f"Keys inconsistent! {T.keys()} != {out_keys}")
 
-        if T1.max_n_dims != T2.max_n_dims:
-            raise ValueError(f"Max dims inconsistent! {T1.max_n_dims} != {T2.max_n_dims}")
+            if T.max_n_dims != out_max_n_dims:
+                raise ValueError(f"Max dims inconsistent! {T.max_n_dims} != {out_max_n_dims}")
 
-        if T1.schema != T2.schema:
-            raise ValueError(f"Schema inconsistent! {T1.schema} != {T2.schema}")
+            if T.schema != out_schema:
+                raise ValueError(f"Schema inconsistent! {T.schema} != {out_schema}")
 
-        out_tensors = {}
+            for dim in range(T.max_n_dims):
+                if T.keys_at_dim(dim) != out_keys_at_dim[dim]:
+                    raise ValueError(
+                        f"Keys inconsistent @ dim {dim}! {T.keys_at_dim(dim)} != {out_keys_at_dim[dim]}"
+                    )
 
-        for dim in range(T1.max_n_dims):
-            if T1.keys_at_dim(dim) != T2.keys_at_dim(dim):
-                raise ValueError(
-                    f"Keys inconsistent @ dim {dim}! {T1.keys_at_dim(dim)} != {T2.keys_at_dim(dim)}"
-                )
+                if dim != 0:
+                    # Here we need to handle lengths and bounds and such as well
+                    lengths_key = f"dim{dim}/lengths"
+                    bounds_key = f"dim{dim}/bounds"
 
-            if dim != 0:
-                # Here we need to handle lengths and bounds and such as well
-                lengths_key = f"dim{dim}/lengths"
-                bounds_key = f"dim{dim}/bounds"
+                    out_tensors[lengths_key] = np.concatenate((out_tensors[lengths_key], T.tensors[lengths_key]))
+                    out_tensors[bounds_key] = np.concatenate(
+                        (out_tensors[bounds_key], T.tensors[bounds_key] + out_tensors[bounds_key][-1])
+                    )
 
-                out_tensors[lengths_key] = np.concatenate((T1.tensors[lengths_key], T2.tensors[lengths_key]))
-                out_tensors[bounds_key] = np.concatenate(
-                    (T1.tensors[bounds_key], T2.tensors[bounds_key] + T1.tensors[bounds_key][-1])
-                )
-
-            for key in T1.keys_at_dim(dim):
-                out_tensors[f"dim{dim}/{key}"] = T1.tensors[f"dim{dim}/{key}"] + T2.tensors[f"dim{dim}/{key}"]
-        return cls(out_tensors, pre_raggedified=True, schema=T1.schema)
+                for key in out_keys_at_dim[dim]:
+                    out_tensors[f"dim{dim}/{key}"] = out_tensors[f"dim{dim}/{key}"] + T.tensors[f"dim{dim}/{key}"]
+        return cls(out_tensors, pre_raggedified=True, schema=out_schema)
