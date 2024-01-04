@@ -566,25 +566,38 @@ class JointNestedRaggedTensorDict:
         """
         if dim != 0:
             raise ValueError(f"Only supports dim = 0 for now; got {dim}")
-        if self.max_n_dims == 1:
-            raise ValueError("Only supports max n_dims > 1 for now.")
+        #if self.max_n_dims == 1:
+        #    raise ValueError("Only supports max n_dims > 1 for now.")
 
         out_tensors = {}
 
-        for dim in range(self.max_n_dims):
-            new_dim = dim + 1
-            if dim == 0:
-                lengths = np.array([len(self.tensors["dim1/lengths"])])
-                bounds = np.array([len(self.tensors["dim1/lengths"])])
-            else:
-                lengths = self.tensors[f"dim{dim}/lengths"]
-                bounds = self.tensors[f"dim{dim}/bounds"]
-
-            out_tensors[f"dim{new_dim}/lengths"] = lengths
-            out_tensors[f"dim{new_dim}/bounds"] = bounds
+        if self.max_n_dims == 1:
+            dim = 0
+            new_dim = 1
 
             for key in self.keys_at_dim(dim):
                 out_tensors[f"dim{new_dim}/{key}"] = self.tensors[f"dim{dim}/{key}"]
+
+            lengths = np.array([len(self.tensors[f"dim{dim}/{key}"])])
+            bounds = np.array([len(self.tensors[f"dim{dim}/{key}"])])
+
+            out_tensors[f"dim{new_dim}/lengths"] = lengths
+            out_tensors[f"dim{new_dim}/bounds"] = bounds
+        else:
+            for dim in range(self.max_n_dims):
+                new_dim = dim + 1
+                if dim == 0:
+                    lengths = np.array([len(self.tensors["dim1/lengths"])])
+                    bounds = np.array([len(self.tensors["dim1/lengths"])])
+                else:
+                    lengths = self.tensors[f"dim{dim}/lengths"]
+                    bounds = self.tensors[f"dim{dim}/bounds"]
+
+                out_tensors[f"dim{new_dim}/lengths"] = lengths
+                out_tensors[f"dim{new_dim}/bounds"] = bounds
+
+                for key in self.keys_at_dim(dim):
+                    out_tensors[f"dim{new_dim}/{key}"] = self.tensors[f"dim{dim}/{key}"]
         return self.__class__(out_tensors, schema=self.schema, pre_raggedified=True)
 
     def __len__(self) -> int:
