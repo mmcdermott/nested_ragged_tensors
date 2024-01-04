@@ -414,7 +414,10 @@ class JointNestedRaggedTensorDict:
                         continue
 
                     new_key = f"dim{dim_int - 1}/{key}"
-                    out_tensors[new_key] = T
+                    if dim_int == 1:
+                        out_tensors[new_key] = T[0]
+                    else:
+                        out_tensors[new_key] = T
 
                 return self.__class__(out_tensors, schema=self.schema, pre_raggedified=True)
             case slice() as S:
@@ -492,10 +495,15 @@ class JointNestedRaggedTensorDict:
                    [[3. , 0. , 0. ],
                     [3.3, 2. , 0. ],
                     [0. , 0. , 0. ]]], dtype=float32)
-            >>> J[0].to_dense()['T']
-            array([1, 2, 3], dtype=uint8)
+            >>> J = JointNestedRaggedTensorDict({"T": [[1, 2, 3]]})
+            >>> dense_dict = J.to_dense()
+            >>> assert dense_dict.keys() == {'T', 'dim1/mask'}
+            >>> dense_dict['dim1/mask']
+            array([[ True,  True,  True]])
+            >>> dense_dict['T']
+            array([[1, 2, 3]], dtype=uint8)
         """
-        out = {key: self.tensors[f"dim0/{key}"][0] for key in self.keys_at_dim(0)}
+        out = {key: self.tensors[f"dim0/{key}"] for key in self.keys_at_dim(0)}
 
         shape = [len(self)]
         L = shape
@@ -539,14 +547,13 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [[1, 2, 3], [4, 5]],
+            ...     "T": [1, 2],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
             ... }, schema={"T": int, "id": int, "val": float})
             >>> dense_dict = J.unsqueeze(dim=0).to_dense()
             >>> dense_dict['T']
-            array([[[1, 2, 3],
-                    [4, 5, 0]]])
+            array([[1, 2]])
             >>> dense_dict['id']
             array([[[[1, 2, 3],
                      [3, 4, 0],
@@ -563,41 +570,41 @@ class JointNestedRaggedTensorDict:
                     [[3. , 0. , 0. ],
                      [3.3, 2. , 0. ],
                      [0. , 0. , 0. ]]]])
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]}, schema={"T": int})
+            >>> dense_dict = J.unsqueeze(dim=0).to_dense()
+            >>> dense_dict['T']
+            array([[1, 2, 3]])
         """
         if dim != 0:
             raise ValueError(f"Only supports dim = 0 for now; got {dim}")
-        #if self.max_n_dims == 1:
-        #    raise ValueError("Only supports max n_dims > 1 for now.")
 
         out_tensors = {}
 
-        if self.max_n_dims == 1:
-            dim = 0
-            new_dim = 1
+        for key in self.keys_at_dim(0):
+            out_tensors[f"dim1/{key}"] = [self.tensors[f"dim0/{key}"]]
+
+        if self.keys_at_dim(0):
+            lengths = np.array([len(self.tensors[f"dim0/{key}"])])
+            bounds = lengths.copy()
+        else:
+            lengths = np.array([len(self.tensors["dim1/lengths"])])
+            bounds = lengths.copy()
+
+        out_tensors["dim1/lengths"] = lengths
+        out_tensors["dim1/bounds"] = bounds
+
+        for dim in range(1, self.max_n_dims):
+            new_dim = dim + 1
+
+            lengths = self.tensors[f"dim{dim}/lengths"]
+            bounds = self.tensors[f"dim{dim}/bounds"]
+
+            out_tensors[f"dim{new_dim}/lengths"] = lengths
+            out_tensors[f"dim{new_dim}/bounds"] = bounds
 
             for key in self.keys_at_dim(dim):
                 out_tensors[f"dim{new_dim}/{key}"] = self.tensors[f"dim{dim}/{key}"]
 
-            lengths = np.array([len(self.tensors[f"dim{dim}/{key}"])])
-            bounds = np.array([len(self.tensors[f"dim{dim}/{key}"])])
-
-            out_tensors[f"dim{new_dim}/lengths"] = lengths
-            out_tensors[f"dim{new_dim}/bounds"] = bounds
-        else:
-            for dim in range(self.max_n_dims):
-                new_dim = dim + 1
-                if dim == 0:
-                    lengths = np.array([len(self.tensors["dim1/lengths"])])
-                    bounds = np.array([len(self.tensors["dim1/lengths"])])
-                else:
-                    lengths = self.tensors[f"dim{dim}/lengths"]
-                    bounds = self.tensors[f"dim{dim}/bounds"]
-
-                out_tensors[f"dim{new_dim}/lengths"] = lengths
-                out_tensors[f"dim{new_dim}/bounds"] = bounds
-
-                for key in self.keys_at_dim(dim):
-                    out_tensors[f"dim{new_dim}/{key}"] = self.tensors[f"dim{dim}/{key}"]
         return self.__class__(out_tensors, schema=self.schema, pre_raggedified=True)
 
     def __len__(self) -> int:
