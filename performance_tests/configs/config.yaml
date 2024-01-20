@@ -1,0 +1,17 @@
+defaults:
+  - _self_
+  - dataset_spec: sample
+
+datasets:
+  - direct_pickle
+  - nested_ragged_tensors
+  - dense
+  - named_safetensors
+
+seeds: 10
+batch_size: 32
+num_workers: 1
+output_file: "results.json"
+hydra:
+  run:
+    dir: "./performance_tests_outputs/${now:%Y-%m-%d_%H-%M-%S}"

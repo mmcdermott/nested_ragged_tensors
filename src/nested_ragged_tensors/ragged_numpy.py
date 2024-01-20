@@ -148,7 +148,7 @@ class JointNestedRaggedTensorDict:
         """Initializes the tensors from lists of raw data entries."""
         self.tensors = {}
         for k, T in tensors.items():
-            if not isinstance(T[0], (list, tuple)):
+            if not isinstance(T[0], (list, tuple, np.ndarray)):
                 dim_str = "dim0"
                 if k not in self.schema:
                     self.schema[k] = self._infer_dtype(T)
@@ -392,7 +392,6 @@ class JointNestedRaggedTensorDict:
                    [[0. , 0. , 0. ],
                     [1. , 0. , 0. ],
                     [0. , 0. , 0. ]]])
-
         """
         match idx:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
@@ -743,11 +742,15 @@ class JointNestedRaggedTensorDict:
                     lengths_key = f"dim{dim}/lengths"
                     bounds_key = f"dim{dim}/bounds"
 
-                    out_tensors[lengths_key] = np.concatenate((out_tensors[lengths_key], T.tensors[lengths_key]))
+                    out_tensors[lengths_key] = np.concatenate(
+                        (out_tensors[lengths_key], T.tensors[lengths_key])
+                    )
                     out_tensors[bounds_key] = np.concatenate(
                         (out_tensors[bounds_key], T.tensors[bounds_key] + out_tensors[bounds_key][-1])
                     )
 
                 for key in out_keys_at_dim[dim]:
-                    out_tensors[f"dim{dim}/{key}"] = out_tensors[f"dim{dim}/{key}"] + T.tensors[f"dim{dim}/{key}"]
+                    out_tensors[f"dim{dim}/{key}"] = (
+                        out_tensors[f"dim{dim}/{key}"] + T.tensors[f"dim{dim}/{key}"]
+                    )
         return cls(out_tensors, pre_raggedified=True, schema=out_schema)

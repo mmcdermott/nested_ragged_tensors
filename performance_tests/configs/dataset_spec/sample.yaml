@@ -1,0 +1,11 @@
+defaults:
+  - _self_
+  - default
+
+num_events:
+  N: [1, 20, 33, 4, 5]
+  freq: [1, 2, 1, 3, 4]
+num_codes_per_event:
+  N: [1, 2, 3, 10, 5]
+  freq: [1, 1, 1, 1, 1]
+num_patients: 5000
