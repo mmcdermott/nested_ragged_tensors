@@ -10,7 +10,6 @@ datasets:
 
 seeds: 10
 batch_size: 32
-num_workers: 1
 output_file: "results.json"
 hydra:
   run:

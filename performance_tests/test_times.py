@@ -30,6 +30,7 @@ import humanize
 import hydra
 import torch
 from loguru import logger
+from mixins import TimeableMixin
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
@@ -96,10 +97,6 @@ def strify(stats: tuple[float], fn: Callable | None = None) -> str:
     return f"{fn(mean)} ± {fn(std)} ({fn(q05)} - {fn(q95)})"
 
 
-def format_time(seconds: float) -> str:
-    return f"{seconds}:.2e"
-
-
 def summarize_results(results_dict: dict) -> tuple[dict, dict]:
     """Summarize the results of a test run."""
     out = defaultdict(lambda: defaultdict(list))
@@ -133,13 +130,13 @@ def summarize_results(results_dict: dict) -> tuple[dict, dict]:
     for dataset, dataset_dict in summary_dict.items():
         strings_dict[dataset]["disk_size"] = strify(dataset_dict["disk_size"], humanize.naturalsize)
         strings_dict[dataset]["total_iteration_time"] = strify(
-            dataset_dict["total_iteration_time"], format_time
+            dataset_dict["total_iteration_time"], TimeableMixin._pprint_duration
         )
         for k, v in dataset_dict.items():
             if k.startswith("sizes/"):
                 strings_dict[dataset][k] = strify(v, humanize.naturalsize)
             elif k.startswith("times/"):
-                strings_dict[dataset][k] = strify(v, format_time)
+                strings_dict[dataset][k] = strify(v, TimeableMixin._pprint_duration)
 
     return {**summary_dict}, {**strings_dict}
 
@@ -160,31 +157,48 @@ def main(cfg: DictConfig):
             logger.info(f"Generating {dataset} dataset")
             match dataset:
                 case "direct_pickle":
-                    D = DirectPickleDataset(raw_data, bounds=bounds)
+                    cls = DirectPickleDataset
                 case "nested_ragged_tensors":
-                    D = NRTDataset(raw_data, bounds=bounds)
+                    cls = NRTDataset
                 case "dense":
-                    D = DenseDataset(raw_data, bounds=bounds)
+                    cls = DenseDataset
                 case "named_safetensors":
-                    D = NamedSafetensorsDataset(raw_data, bounds=bounds)
+                    cls = NamedSafetensorsDataset
+
+            st = datetime.now()
+            D = cls(raw_data, bounds=bounds)
+            elapsed = datetime.now() - st
+            out[f"{seed}/{dataset}/creation_time"] = elapsed.total_seconds()
+            logger.info(f"Creation took {TimeableMixin._pprint_duration(elapsed.total_seconds())}")
 
             with TemporaryDirectory() as tempdir:
                 data_file = Path(f"{tempdir}/dataset.file")
                 logger.info(f"Writing {dataset} dataset to disk @ {data_file}")
+                st = datetime.now()
                 D.write(data_file)
+                elapsed = datetime.now() - st
+                out[f"{seed}/{dataset}/write_time"] = elapsed.total_seconds()
+                logger.info(f"Writing took {TimeableMixin._pprint_duration(elapsed.total_seconds())}")
                 size = data_file.stat().st_size
                 logger.info(f"Dataset takes up {humanize.naturalsize(size)}")
                 out[f"{seed}/{dataset}/disk_size"] = size
 
+                logger.info(f"Deleting original {dataset} dataset.")
+                del D
+
                 logger.info(f"Reading {dataset} dataset from disk @ {data_file}")
-                D_read = type(D).read(data_file, bounds=bounds)
+                st = datetime.now()
+                D_read = cls.read(data_file, bounds=bounds)
+                elapsed = datetime.now() - st
+                out[f"{seed}/{dataset}/read_time"] = elapsed.total_seconds()
+                logger.info(f"Reading took {TimeableMixin._pprint_duration(elapsed.total_seconds())}")
+
                 logger.info(f"Building {dataset} dataloader")
 
                 dataloader = DataLoader(
                     D_read,
                     batch_size=cfg.batch_size,
                     shuffle=True,
-                    num_workers=cfg.num_workers,
                     collate_fn=D_read.collate,
                 )
 
@@ -196,14 +210,14 @@ def main(cfg: DictConfig):
                     for k, v in B.items():
                         sizes[k].append(tensor_size(v))
                 elapsed = datetime.now() - start
-                logger.info(f"Finished {dataset} iteration in {elapsed}")
+                logger.info(f"Finished {dataset} iteration in {TimeableMixin._pprint_duration(elapsed.total_seconds())}")
                 out[f"{seed}/{dataset}/total_iteration_time"] = elapsed.total_seconds()
                 for k, v in sizes.items():
                     out[f"{seed}/{dataset}/sizes/{k}/values"] = v
 
-                for k in D_read._timings.keys():
+                for k in D_read._duration_stats.keys():
                     out[f"{seed}/{dataset}/times/{k}/values"] = D_read._times_for(k)
-            logger.info(f"Finished {dataset} dataset")
+            logger.info(f"Finished {dataset} dataset. Times:\n{D_read._profile_durations()}")
         logger.info(f"Finished seed {seed}")
 
     logger.info(f"Finished test. Writing results to {cfg.output_file}")

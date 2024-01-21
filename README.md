@@ -135,3 +135,58 @@ within a patient, though of course the constant factor on the lookup is larger.
 
 ## Performance Testing
 Run `python performance_tests/test_times.py` for a comparison across several strategies of using these data.
+
+For example, to use a configuration of nested events and codes that is similar to the MIMIC-IV dataset, you
+can run the below code (note this takes a lot of memory for the "dense" view of the data).
+```python
+python performance_tests/test_times.py dataset_spec=mimic dataset_spec.num_patients=1250 dataset_spec.max_events_per_item=256 batch_size=64
+...
+...
+{'dense': {'disk_size': '52.6 GB ± 18.3 GB (29.7 GB - 81.6 GB)',
+           'sizes/dim_1': '128.1 kB ± 13.4 kB (128.1 kB - 131.2 kB)',
+           'sizes/dim_2_1': '154.9 MB ± 42.5 MB (119.1 MB - 213.1 MB)',
+           'sizes/dim_2_2': '154.9 MB ± 42.5 MB (119.1 MB - 213.1 MB)',
+           'times/__getitem__': '21.3 μs ± 9.9 μs (18.4 μs - 28.4 μs)',
+           'times/collate': '56.0 ms ± 13.9 ms (36.2 ms - 79.9 ms)',
+           'total_iteration_time': '1.7 sec ± 273.8 ms (1.4 sec - 2.1 sec)'},
+ 'direct_pickle': {'disk_size': '186.3 MB ± 3.6 MB (181.7 MB - 191.7 MB)',
+                   'sizes/dim_1': '128.1 kB ± 13.4 kB (128.1 kB - 131.2 kB)',
+                   'sizes/dim_2_1': '62.7 MB ± 30.9 MB (36.2 MB - 123.7 MB)',
+                   'sizes/dim_2_2': '62.7 MB ± 30.9 MB (36.2 MB - 123.7 MB)',
+                   'times/__getitem__': '17.6 μs ± 14.9 μs (7.4 μs - 36.0 μs)',
+                   'times/collate': '562.9 ms ± 73.2 ms (483.3 ms - 645.3 ms)',
+                   'total_iteration_time': '11.6 sec ± 312.4 ms (11.1 sec - '
+                                           '12.0 sec)'},
+ 'named_safetensors': {'disk_size': '215.2 MB ± 4.1 MB (209.9 MB - 221.5 MB)',
+                       'sizes/dim_1': '128.1 kB ± 13.4 kB (128.1 kB - 131.2 '
+                                      'kB)',
+                       'sizes/dim_2_1': '62.7 MB ± 30.9 MB (36.2 MB - 123.7 '
+                                        'MB)',
+                       'sizes/dim_2_2': '62.7 MB ± 30.9 MB (36.2 MB - 123.7 '
+                                        'MB)',
+                       'times/__getitem__': '272.5 μs ± 150.4 μs (96.8 μs - '
+                                            '503.1 μs)',
+                       'times/collate': '592.6 ms ± 77.4 ms (506.8 ms - 679.0 '
+                                        'ms)',
+                       'total_iteration_time': '12.5 sec ± 291.2 ms (12.1 sec '
+                                               '- 12.9 sec)'},
+ 'nested_ragged_tensors': {'disk_size': '173.0 MB ± 3.3 MB (168.8 MB - 178.1 '
+                                        'MB)',
+                           'sizes/dim1': '16.1 kB ± 1.7 kB (16.1 kB - 16.5 kB)',
+                           'sizes/dim2': '7.8 MB ± 3.9 MB (4.5 MB - 15.5 MB)',
+                           'sizes/dim_1': '128.1 kB ± 13.4 kB (128.1 kB - '
+                                          '131.2 kB)',
+                           'sizes/dim_2_1': '62.7 MB ± 30.9 MB (36.2 MB - '
+                                            '123.7 MB)',
+                           'sizes/dim_2_2': '62.7 MB ± 30.9 MB (36.2 MB - '
+                                            '123.7 MB)',
+                           'times/__getitem__': '115.1 μs ± 42.0 μs (89.9 μs - '
+                                                '161.9 μs)',
+                           'times/collate': '130.0 ms ± 36.9 ms (80.6 ms - '
+                                            '191.0 ms)',
+                           'total_iteration_time': '3.1 sec ± 226.0 ms (2.7 '
+                                                   'sec - 3.4 sec)'}}
+```
+
+Doing so will generate output in the `performance_tests_outputs` folder with a log file detailing all of the
+intermediate steps and timing as well as a raw and summarized json file of output timings.
