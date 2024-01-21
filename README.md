@@ -132,3 +132,6 @@ patients with a maximum of `M` events and a maximum of `C` codes per event, the 
 then this sparse format costs `O(N) + O(V1) + O(V2)` which is substantially less than the dense storage cost,
 and it still has `O(1)` lookup speed to access an individual patient's data or an individual set of events
 within a patient, though of course the constant factor on the lookup is larger.
+
+## Performance Testing
+Run `python performance_tests/test_times.py` for a comparison across several strategies of using these data.
