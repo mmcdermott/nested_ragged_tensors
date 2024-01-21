@@ -96,6 +96,10 @@ def strify(stats: tuple[float], fn: Callable | None = None) -> str:
     return f"{fn(mean)} ± {fn(std)} ({fn(q05)} - {fn(q95)})"
 
 
+def format_time(seconds: float) -> str:
+    return f"{seconds}:.2e"
+
+
 def summarize_results(results_dict: dict) -> tuple[dict, dict]:
     """Summarize the results of a test run."""
     out = defaultdict(lambda: defaultdict(list))
@@ -129,13 +133,13 @@ def summarize_results(results_dict: dict) -> tuple[dict, dict]:
     for dataset, dataset_dict in summary_dict.items():
         strings_dict[dataset]["disk_size"] = strify(dataset_dict["disk_size"], humanize.naturalsize)
         strings_dict[dataset]["total_iteration_time"] = strify(
-            dataset_dict["total_iteration_time"], humanize.naturaldelta
+            dataset_dict["total_iteration_time"], format_time
         )
         for k, v in dataset_dict.items():
             if k.startswith("sizes/"):
                 strings_dict[dataset][k] = strify(v, humanize.naturalsize)
             elif k.startswith("times/"):
-                strings_dict[dataset][k] = strify(v, humanize.naturaldelta)
+                strings_dict[dataset][k] = strify(v, format_time)
 
     return {**summary_dict}, {**strings_dict}
 
@@ -169,7 +173,7 @@ def main(cfg: DictConfig):
                 logger.info(f"Writing {dataset} dataset to disk @ {data_file}")
                 D.write(data_file)
                 size = data_file.stat().st_size
-                logger.info(f"Dataset takes up {humanize.naturalsize(size)} bytes")
+                logger.info(f"Dataset takes up {humanize.naturalsize(size)}")
                 out[f"{seed}/{dataset}/disk_size"] = size
 
                 logger.info(f"Reading {dataset} dataset from disk @ {data_file}")
