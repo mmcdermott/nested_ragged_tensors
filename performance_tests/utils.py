@@ -24,12 +24,14 @@ def get_ragged_tensor_shape(vals: list) -> tuple[int]:
         v = list(itertools.chain(*v))
     return tuple(final_shape)
 
+
 def fill_dense_from_ragged(out: torch.Tensor, vals: list, dtype=torch.long):
     for i, e in enumerate(vals):
         if type(e[0]) is list or isinstance(e[0], np.ndarray):
             fill_dense_from_ragged(out[i], e)
         else:
             out[i, : len(e)] = torch.tensor(e, dtype=dtype)
+
 
 def ragged_to_dense(vals: list, dtype=torch.long) -> torch.Tensor:
     """Converts a list of lists into a single tensor.
@@ -60,6 +62,7 @@ def ragged_to_dense(vals: list, dtype=torch.long) -> torch.Tensor:
     fill_dense_from_ragged(out, vals, dtype=dtype)
 
     return out
+
 
 def tensor_size(a: torch.Tensor) -> int:
     return sys.getsizeof(a) + torch.numel(a) * a.element_size()

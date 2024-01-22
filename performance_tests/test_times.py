@@ -210,7 +210,10 @@ def main(cfg: DictConfig):
                     for k, v in B.items():
                         sizes[k].append(tensor_size(v))
                 elapsed = datetime.now() - start
-                logger.info(f"Finished {dataset} iteration in {TimeableMixin._pprint_duration(elapsed.total_seconds())}")
+                logger.info(
+                    f"Finished {dataset} iteration in "
+                    f"{TimeableMixin._pprint_duration(elapsed.total_seconds())}"
+                )
                 out[f"{seed}/{dataset}/total_iteration_time"] = elapsed.total_seconds()
                 for k, v in sizes.items():
                     out[f"{seed}/{dataset}/sizes/{k}/values"] = v

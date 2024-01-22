@@ -1,9 +1,153 @@
 # Nested Ragged Tensors
 
 This package contains utilities for efficiently working with, saving, and loading, collections of connected
-nested ragged tensors in numpy. Numpy was chosen as it proved to be significantly faster to work with than was
-PyTorch. I make no guarantees about the absence of better solutions for the driving problem here. I have not
-yet found any such better solutions, but that does not imply they do not exist.
+nested ragged tensors in numpy. For example:
+
+```python
+>>> from nested_ragged_tensors.ragged_numpy import *
+>>> import tempfile
+>>> J = JointNestedRaggedTensorDict({
+...     "T":   [[1,           2,        3       ], [4,   5          ], [6,  7]],
+...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]], [[], [8,  9]]],
+...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]], [[], [1., 0]]],
+... }, schema={"T": int, "id": int, "val": float})
+>>> len(J)
+3
+>>> as_dense = J[1].to_dense()
+>>> assert dense_dict.keys() == {'T', 'id', 'val', 'dim1/mask'}
+>>> as_dense['T']
+array([4, 5])
+>>> as_dense['id']
+array([[3, 0, 0],
+       [3, 2, 2]])
+>>> as_dense['val']
+array([[3. , 0. , 0. ],
+       [3.3, 2. , 0. ]])
+>>> as_dense['dim1/mask']
+array([[True, False, False],
+       [True,  True, False]])
+>>> as_dense = J[2].to_dense()
+>>> as_dense['T']
+array([6, 7])
+>>> as_dense['id']
+array([[0, 0],
+       [8, 9]])
+>>> as_dense['val']
+array([[0., 0.],
+       [1., 0.]])
+>>> J["T"]
+Traceback (most recent call last):
+    ...
+TypeError: <class 'str'> not supported for JointNestedRaggedTensorDict.__getitem__
+>>> as_dense = J[np.array([0, 2])].to_dense()
+>>> as_dense['T']
+array([[1, 2, 3],
+       [6, 7, 0]])
+>>> as_dense['id']
+array([[[1, 2, 3],
+        [3, 4, 0],
+        [1, 2, 0]],
+<BLANKLINE>
+       [[0, 0, 0],
+        [8, 9, 0],
+        [0, 0, 0]]])
+>>> as_dense['val']
+array([[[1. , 0.2, 0. ],
+        [3.1, 0. , 0. ],
+        [1. , 2.2, 0. ]],
+<BLANKLINE>
+       [[0. , 0. , 0. ],
+        [1. , 0. , 0. ],
+        [0. , 0. , 0. ]]])
+>>> with tempfile.TemporaryDirectory() as dirpath:
+...     fp = Path(dirpath) / "tensors.pt"
+...     J.save(fp)
+...     J2 = JointNestedRaggedTensorDict.load(fp)
+>>> assert J.keys() == J2.keys()
+>>> for k, v in J.tensors.items():
+...     if k.endswith("/lengths") or k.endswith("/bounds"):
+...         assert (J.tensors[k] == J2.tensors[k]).all(), f"Tensors at {k} unequal!"
+...     else:
+...         assert len(J.tensors[k]) == len(J2.tensors[k]), f"Tensors at {k} unequal!"
+...         for i, (v1, v2) in enumerate(zip(J.tensors[k], J2.tensors[k])):
+...             assert (v1 == v2).all(), f"Tensors at {k}[{i}] unequal!"
+>>> J = JointNestedRaggedTensorDict({
+...     "T":   [1,                                      2],
+...     "id":  [[[1,   2,   3],  [3,   4],  [1,  2]],   [[3], [3,   2, 2]]],
+...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2, 0]]],
+... }, schema={"T": int, "id": int, "val": float})
+>>> dense_dict = J.unsqueeze(dim=0).to_dense()
+>>> dense_dict['T']
+array([[1, 2]])
+>>> dense_dict['id']
+array([[[[1, 2, 3],
+         [3, 4, 0],
+         [1, 2, 0]],
+<BLANKLINE>
+        [[3, 0, 0],
+         [3, 2, 2],
+         [0, 0, 0]]]])
+>>> dense_dict['val']
+array([[[[1. , 0.2, 0. ],
+         [3.1, 0. , 0. ],
+         [1. , 2.2, 0. ]],
+<BLANKLINE>
+        [[3. , 0. , 0. ],
+         [3.3, 2. , 0. ],
+         [0. , 0. , 0. ]]]])
+>>> stacked = JointNestedRaggedTensorDict.vstack([J[0], J[1]])
+>>> assert stacked.to_dense() == J.to_dense()
+>>> J1 = JointNestedRaggedTensorDict({
+...     "T": [[1, 2, 3], [4, 5]],
+...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+... }, schema={"T": int, "id": int, "val": float})
+>>> J2 = JointNestedRaggedTensorDict({
+...     "T": [[6, 7, 8, 9]],
+...     "id": [[[3], [3, 2, 2], [1], [1]]],
+...     "val": [[[3], [4., 2., 0], [0], [3.]]],
+... }, schema={"T": int, "id": int, "val": float})
+>>> concatenated = JointNestedRaggedTensorDict.concatenate([J1, J2])
+>>> dense_dict = concatenated.to_dense()
+>>> dense_dict['T']
+array([[1, 2, 3, 0],
+       [4, 5, 0, 0],
+       [6, 7, 8, 9]])
+>>> dense_dict['id']
+array([[[1, 2, 3],
+        [3, 4, 0],
+        [1, 2, 0],
+        [0, 0, 0]],
+<BLANKLINE>
+       [[3, 0, 0],
+        [3, 2, 2],
+        [0, 0, 0],
+        [0, 0, 0]],
+<BLANKLINE>
+       [[3, 0, 0],
+        [3, 2, 2],
+        [1, 0, 0],
+        [1, 0, 0]]])
+>>> dense_dict['val']
+array([[[1. , 0.2, 0. ],
+        [3.1, 0. , 0. ],
+        [1. , 2.2, 0. ],
+        [0. , 0. , 0. ]],
+<BLANKLINE>
+       [[3. , 0. , 0. ],
+        [3.3, 2. , 0. ],
+        [0. , 0. , 0. ],
+        [0. , 0. , 0. ]],
+<BLANKLINE>
+       [[3. , 0. , 0. ],
+        [4. , 2. , 0. ],
+        [0. , 0. , 0. ],
+        [3. , 0. , 0. ]]])
+```
+
+Numpy was chosen as it proved to be significantly faster to work with than was PyTorch. I make no guarantees
+about the absence of better solutions for the driving problem here. I have not yet found any such better
+solutions, but that does not imply they do not exist.
 
 ## The Problem
 
@@ -44,11 +188,12 @@ second level, respectively.
 ## This package
 
 In this package, we aim to make it easy to do three things with data of this format:
-1\. Store and load these tensors to/from disk with minimal disk space and store/load time.
-2\. Store these data in memory with minimal memory footprint.
-3\. Efficiently manipulate these tensors to facilitate rapidly slicing these tensors along the first axis
-and iterating through these tensors along the first axis.
-4\. Efficiently convert ragged sparse tensors to dense views.
+
+1. Store and load these tensors to/from disk with minimal disk space and store/load time.
+2. Store these data in memory with minimal memory footprint.
+3. Efficiently manipulate these tensors to facilitate rapidly slicing these tensors along the first axis
+   and iterating through these tensors along the first axis.
+4. Efficiently convert ragged sparse tensors to dense views.
 
 To do this, we use the following data model. Suppose we have a set of these "ragged" tensors in a dictionary
 stored as plain lists of lists (repeat "of lists" as necessary). This set of tensors must have the property
@@ -82,14 +227,14 @@ With this data model, we store data in the following manner:
 
 ### Storing values
 
-First, we store the raw values in _flat lists of numpy tensors_. E.g., our "valid" example above will be
-stored as
+First, we store the raw values in _flat lists of numpy tensors_ with keys prefixed by the dimensionality of
+the nested subviews. E.g., our "valid" example above will be stored as
 
 ```python
 data = {
-    "tens_1": np.array([0, 1, 2]),
-    "tens_2": [np.array([1, 2]), np.array([3]), np.array([4, 5, 6])],
-    "tens_3": [
+    "dim0/tens_1": np.array([0, 1, 2]),
+    "dim1/tens_2": [np.array([1, 2]), np.array([3]), np.array([4, 5, 6])],
+    "dim2/tens_3": [
         np.array([]),
         np.array([3, 0]),
         np.array([3, 4, 5]),
@@ -97,7 +242,7 @@ data = {
         np.array([]),
         np.array([2]),
     ],
-    "tens_4": [
+    "dim2/tens_4": [
         np.array([]),
         np.array([1, 2]),
         np.array([1, 8, 0]),
@@ -115,29 +260,57 @@ format allows efficient storage to/from disk (where data will be stored as flat 
 ### Storing Metadata to Permit Efficient Usage
 
 To efficiently process the view of data described above, we need to also know the relative lengths of the
-various nesting levels that have been collapsed into the flat view.
+various nesting levels that have been collapsed into the flat view. To do this, we store the set of relative
+lengths of each level of the listing in separate, 1D tensors, like this:
 
-In this package, we instead store these data (in memory) with a collection of several tensors. First, all
-values (`pijk`) are stored in a plain list of one-dimensional tensors which correspond to the inner-most
-layers of the respective nested tensors. To re-construct the multi-dimensional structure, we also store a list
-of tensors corresponding to the lengths of each grouping of values at each level of nesting. E.g., the
-patient's have `torch.LongTensor([3, 2])` events each, and the events have `torch.LongTensor([2, 4, 1, 3])`
-codes each. In this way, we store the data in a reconstructable format that preserves only the values observed
-and the metadata needed to (1) slice and (2) reconstruct the dense view in a set of flat tensors that we can
-work with efficiently.
-To make these data easier to slice, we also store the cumulative sums of these lengths tensors directly, such
-that it is easy to slice down to a specific patient or a specific patient's events. Ultimately, if we have `N`
-patients with a maximum of `M` events and a maximum of `C` codes per event, the dense storage would cost
-`O(N*M*C)`. If in that dataset there are only `V1 << N*M` observed events and `V2 << V1*C` observed codes,
-then this sparse format costs `O(N) + O(V1) + O(V2)` which is substantially less than the dense storage cost,
-and it still has `O(1)` lookup speed to access an individual patient's data or an individual set of events
-within a patient, though of course the constant factor on the lookup is larger.
+```python
+data = {
+    "dim0/tens_1": np.array([0, 1, 2]),
+    ...
+    "dim2/tens_4": ...,
+    "dim1/lengths": np.array([2, 1, 3]),
+    "dim2/lengths": np.array([0, 2, 3, 0, 0, 1]),
+}
+```
+
+We can make some of our later tasks easier if we also precompute the relative bounds for any sublist starting
+at any level of nesting as well (which is just the cumulative sum of that levels respective lengths):
+
+```python
+data = {
+    "dim0/tens_1": np.array([0, 1, 2]),
+    ...
+    "dim2/tens_4": ...,
+    "dim1/lengths": np.array([2, 1, 3]),
+    "dim1/bounds": np.array([2, 3, 6]),
+    "dim2/lengths": np.array([0, 2, 3, 0, 0, 1]),
+    "dim2/bounds": np.array([0, 2, 5, 0, 0, 6]),
+}
+```
+
+These `bounds` tensors tell us that if we want to, for example, get the events corresponding to patients 1 and
+2 (indexing from 0), then we need to take elements `3:6` of the respective `dim_1` list of subtensors to do
+so.
+
+### Computational Complexity Cost
+
+Ultimately, if we have `N` patients with a maximum of `M` events and a maximum of `C` codes per event, the
+dense storage would cost `O(N*M*C)`. If in that dataset there are only `V1 << N*M` observed events and `V2 << V1*C` observed codes, then this sparse format costs `O(N) + O(V1) + O(V2)` which is substantially less than
+the dense storage cost, and it still has `O(1)` lookup speed to access an individual patient's data or an
+individual set of events within a patient, though of course the constant factor on the lookup is larger.
+
+### Reading and Writing to/from disk
+
+Nested ragged tensor collections can be read from and written to disk with the `save` and `load` methods,
+which leverage Hugging Face's `safetensors` library for internal manipulation.
 
 ## Performance Testing
+
 Run `python performance_tests/test_times.py` for a comparison across several strategies of using these data.
 
 For example, to use a configuration of nested events and codes that is similar to the MIMIC-IV dataset, you
 can run the below code (note this takes a lot of memory for the "dense" view of the data).
+
 ```python
 python performance_tests/test_times.py dataset_spec=mimic dataset_spec.num_patients=1250 dataset_spec.max_events_per_item=256 batch_size=64
 ...
