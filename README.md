@@ -1,5 +1,7 @@
 # Nested Ragged Tensors
 
+Install with `pip install nested-ragged-tensors`
+
 This package contains utilities for efficiently working with, saving, and loading, collections of connected
 nested ragged tensors in numpy. For example:
 
@@ -14,7 +16,7 @@ nested ragged tensors in numpy. For example:
 >>> len(J)
 3
 >>> as_dense = J[1].to_dense()
->>> assert dense_dict.keys() == {'T', 'id', 'val', 'dim1/mask'}
+>>> assert as_dense.keys() == {'T', 'id', 'val', 'dim1/mask'}
 >>> as_dense['T']
 array([4, 5])
 >>> as_dense['id']
@@ -25,7 +27,7 @@ array([[3. , 0. , 0. ],
        [3.3, 2. , 0. ]])
 >>> as_dense['dim1/mask']
 array([[True, False, False],
-       [True,  True, False]])
+       [True,  True,  True]])
 >>> as_dense = J[2].to_dense()
 >>> as_dense['T']
 array([6, 7])
