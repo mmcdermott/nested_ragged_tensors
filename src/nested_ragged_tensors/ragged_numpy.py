@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
-from safetensors.numpy import load_file, save_file
 from safetensors import safe_open
+from safetensors.numpy import load_file, save_file
 
 NP_FLOAT_TYPES = (np.float16, np.float32, np.float64)
 NP_INT_TYPES = (np.int8, np.int16, np.int32, np.int64)
@@ -282,9 +282,7 @@ class JointNestedRaggedTensorDict:
             ... })
             >>> assert J.keys() == {'id', 'T', 'val'}
         """
-        return {
-            k.split("/")[1] for k in self.tensors.keys() if not self._is_meta_key(k)
-        }
+        return {k.split("/")[1] for k in self.tensors.keys() if not self._is_meta_key(k)}
 
     @classmethod
     def _is_meta_key(cls, k: str) -> bool:
@@ -848,7 +846,7 @@ class JointNestedRaggedTensorDict:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
                 return cls.vstack([cls.load_slice(fp, int(i)) for i in arr])
             case int() as i:
-                return cls.load_slice(fp, slice(i, i+1))[0]
+                return cls.load_slice(fp, slice(i, i + 1))[0]
             case slice() as S:
                 st_i = 0 if S.start is None else S.start
                 end_i = S.stop
@@ -886,7 +884,7 @@ class JointNestedRaggedTensorDict:
                             offset = 0
                             B = f.get_slice(f"dim{dim}/bounds")[st_i:end_i]
                         else:
-                            B = f.get_slice(f"dim{dim}/bounds")[st_i-1:end_i]
+                            B = f.get_slice(f"dim{dim}/bounds")[st_i - 1 : end_i]
                             offset = B[0]
                             B = B[1:] - offset
 
@@ -899,7 +897,6 @@ class JointNestedRaggedTensorDict:
                             v = f.get_slice(k)[vals_start:vals_end]
                             schema[k] = v.dtype
                             tensors[k] = np.split(v, B[:-1])
-
 
                         st_i = 0 if st_i == 0 else offset
                         end_i = B[-1] + offset
