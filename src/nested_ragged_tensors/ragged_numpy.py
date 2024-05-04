@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import itertools
+from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 from safetensors.numpy import load_file, save_file
+from safetensors import safe_open
 
 NP_FLOAT_TYPES = (np.float16, np.float32, np.float64)
 NP_INT_TYPES = (np.int8, np.int16, np.int32, np.int64)
@@ -226,7 +228,7 @@ class JointNestedRaggedTensorDict:
         tensors = {}
         schema = {}
         for k, v in flat_vals_tensors.items():
-            if k.endswith("/lengths") or k.endswith("/bounds"):
+            if cls._is_meta_key(k):
                 tensors[k] = v
             else:
                 schema[k] = v.dtype
@@ -281,10 +283,37 @@ class JointNestedRaggedTensorDict:
             >>> assert J.keys() == {'id', 'T', 'val'}
         """
         return {
-            k.split("/")[1]
-            for k in self.tensors.keys()
-            if not (k.endswith("lengths") or k.endswith("bounds"))
+            k.split("/")[1] for k in self.tensors.keys() if not self._is_meta_key(k)
         }
+
+    @classmethod
+    def _is_meta_key(cls, k: str) -> bool:
+        """Returns `True` if and only if ``k`` is a meta-key, rather than a data-key.
+
+        Examples:
+            >>> JointNestedRaggedTensorDict._is_meta_key("dim1/T")
+            False
+            >>> JointNestedRaggedTensorDict._is_meta_key("dim1/lengths")
+            True
+            >>> JointNestedRaggedTensorDict._is_meta_key("dim1/bounds")
+            True
+            >>> JointNestedRaggedTensorDict._is_meta_key("dim1/mask")
+            True
+        """
+        return k.endswith("/lengths") or k.endswith("/bounds") or k.endswith("/mask")
+
+    @classmethod
+    def _get_dim_from_key_str(self, full_key_str: str) -> int:
+        """Gets the dimensionality associated with this key.
+
+        Examples:
+            >>> JointNestedRaggedTensorDict._get_dim_from_key_str("dim1/T")
+            1
+            >>> JointNestedRaggedTensorDict._get_dim_from_key_str("dim2/id")
+            2
+        """
+        dim_part, key_part = full_key_str.split("/")
+        return int(dim_part[3:])
 
     def _get_dim(self, key: str) -> int:
         """Gets the dimensionality associated with this key.
@@ -302,7 +331,7 @@ class JointNestedRaggedTensorDict:
         """
         for k in self.tensors.keys():
             if k.endswith(f"/{key}"):
-                return int(k.split("/")[0][3:])
+                return self._get_dim_from_key_str(k)
 
         raise KeyError(f"Key {key} not found in {', '.join(self.tensors.keys())}")
 
@@ -754,3 +783,127 @@ class JointNestedRaggedTensorDict:
                         out_tensors[f"dim{dim}/{key}"] + T.tensors[f"dim{dim}/{key}"]
                     )
         return cls(out_tensors, pre_raggedified=True, schema=out_schema)
+
+    @classmethod
+    def load_slice(cls, fp: Path, idx: int | slice | np.ndarray) -> JointNestedRaggedTensorDict:
+        """Loads the specified slice of the tensors saved at the given filepath.
+
+        This method uses ``safetensors`` to fetch only the requested slice from the underlying file in an
+        efficient, optimized manner that significantly preserves the resources required to load the entire
+        file.
+
+        Args:
+            fp: The path from which to load
+            idx: The slice to read.
+
+        Returns
+            * If ``idx`` is an `int` or a `slice` object, this returns a `JointNestedRaggedTensorDict`
+              representing the tensors saved at ``fp`` as though they were sliced according to ``idx`` in the
+              first dimension. With an `int` index, the resulting tensors will have their dimensionality
+              reduced by one, and this cannot be called on a collection that already has some tensors that are
+              of dimensionality 1 in it.
+            * If ``idx`` is a numpy array of integers, this returns a `JointNestedRaggedTensorDict`
+              that consists of tensors saved at ``fp`` sliced at the integer indices in ``idx`` and
+              then re-stacked together. Dimensionality will not be reduced. This behavior is consistent with
+              how the tensors would be sliced under ``idx`` were they dense numpy arrays.
+
+
+        TODO(mmd): Look into using `safetensors.safe_open`
+
+        Examples:
+            >>> import tempfile
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+            ... })
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.pt"
+            ...     J.save(fp)
+            ...     J2 = JointNestedRaggedTensorDict.load_slice(fp, slice(None, 1))
+            >>> J = J[:1]
+            >>> assert J.keys() == J2.keys(), f"Keys unequal: {J.keys()} != {J2.keys()}"
+            >>> J_dense = J.to_dense()
+            >>> J2_dense = J2.to_dense()
+            >>> for k in J_dense.keys():
+            ...     assert (J_dense[k] == J2_dense[k]).all(), f"Tensors at {k} unequal!"
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+            ... })
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.pt"
+            ...     J.save(fp)
+            ...     J2 = JointNestedRaggedTensorDict.load_slice(fp, 1)
+            >>> J = J[1]
+            >>> assert J.keys() == J2.keys(), f"Keys unequal: {J.keys()} != {J2.keys()}"
+            >>> J_dense = J.to_dense()
+            >>> J2_dense = J2.to_dense()
+            >>> for k in J_dense.keys():
+            ...     assert (J_dense[k] == J2_dense[k]).all(), f"Tensors at {k} unequal!"
+        """
+
+        match idx:
+            case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
+                return cls.vstack([cls.load_slice(fp, int(i)) for i in arr])
+            case int() as i:
+                return cls.load_slice(fp, slice(i, i+1))[0]
+            case slice() as S:
+                st_i = 0 if S.start is None else S.start
+                end_i = S.stop
+
+                if S.step not in (None, 1):
+                    raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
+
+                tensors = {}
+                schema = {}
+                with safe_open(fp, framework="np") as f:
+                    keys_by_dim = defaultdict(list)
+
+                    for k in f.keys():
+                        if cls._is_meta_key(k):
+                            continue
+
+                        keys_by_dim[cls._get_dim_from_key_str(k)].append(k)
+
+                    max_n_dims = max(keys_by_dim.keys()) + 1
+
+                    for key in keys_by_dim[0]:
+                        v = f.get_slice(k)[st_i:end_i]
+                        schema[k] = v.dtype
+                        tensors[k] = v
+
+                    for dim in range(1, max_n_dims):
+                        try:
+                            tensors[f"dim{dim}/lengths"] = f.get_slice(f"dim{dim}/lengths")[st_i:end_i]
+                        except SystemError as e:
+                            raise ValueError(
+                                f"Error loading lengths for dim {dim} with st_i={st_i} and end_i={end_i}"
+                            ) from e
+
+                        if st_i == 0:
+                            offset = 0
+                            B = f.get_slice(f"dim{dim}/bounds")[st_i:end_i]
+                        else:
+                            B = f.get_slice(f"dim{dim}/bounds")[st_i-1:end_i]
+                            offset = B[0]
+                            B = B[1:] - offset
+
+                        vals_start = offset
+                        vals_end = B[-1] + offset
+
+                        tensors[f"dim{dim}/bounds"] = B
+
+                        for k in keys_by_dim[dim]:
+                            v = f.get_slice(k)[vals_start:vals_end]
+                            schema[k] = v.dtype
+                            tensors[k] = np.split(v, B[:-1])
+
+
+                        st_i = 0 if st_i == 0 else offset
+                        end_i = B[-1] + offset
+
+                return cls(tensors, schema=schema, pre_raggedified=True)
+            case _:
+                raise TypeError(f"{type(idx)} not supported for {cls.__name__}.load_slice")
