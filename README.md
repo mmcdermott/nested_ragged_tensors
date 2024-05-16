@@ -151,6 +151,9 @@ Numpy was chosen as it proved to be significantly faster to work with than was P
 about the absence of better solutions for the driving problem here. I have not yet found any such better
 solutions, but that does not imply they do not exist.
 
+Tensors stored in this format on disk can also be partially loaded from disk using the `load_slice` method,
+which relies on Hugging Face `safetensors` partial loading capability internally and is quite fast.
+
 ## The Problem
 
 The problem this package solves is how to work with tensors that contain nested collections of data of
