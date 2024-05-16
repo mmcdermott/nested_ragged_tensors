@@ -481,8 +481,14 @@ class JointNestedRaggedTensorDict:
             case _:
                 raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__}.__getitem__")
 
-    def to_dense(self) -> dict[str, np.array]:
+    def to_dense(self, padding_side: str = "right") -> dict[str, np.array]:
         """Returns a dense view of these ragged tensors.
+
+        Args:
+            seq_padding_side: The side on which to pad sequences. Must be either "left" or "right".
+
+        Raises:
+            ValueError: If ``seq_padding_side`` is not "left" or "right".
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
@@ -522,6 +528,38 @@ class JointNestedRaggedTensorDict:
                    [[3. , 0. , 0. ],
                     [3.3, 2. , 0. ],
                     [0. , 0. , 0. ]]], dtype=float32)
+            >>> dense_dict = J.to_dense(padding_side="left")
+            >>> assert dense_dict.keys() == {'T', 'id', 'val', 'dim1/mask', 'dim2/mask'}
+            >>> dense_dict['dim1/mask']
+            array([[ True,  True,  True],
+                   [False,  True,  True]])
+            >>> dense_dict['T']
+            array([[1, 2, 3],
+                   [0, 4, 5]], dtype=uint8)
+            >>> dense_dict['dim2/mask']
+            array([[[ True,  True,  True],
+                    [False,  True,  True],
+                    [False,  True,  True]],
+            <BLANKLINE>
+                   [[False, False, False],
+                    [False, False,  True],
+                    [ True,  True,  True]]])
+            >>> dense_dict['id']
+            array([[[1, 2, 3],
+                    [0, 3, 4],
+                    [0, 1, 2]],
+            <BLANKLINE>
+                   [[0, 0, 0],
+                    [0, 0, 3],
+                    [3, 2, 2]]], dtype=uint8)
+            >>> dense_dict['val']
+            array([[[1. , 0.2, 0. ],
+                    [0. , 3.1, 0. ],
+                    [0. , 1. , 2.2]],
+            <BLANKLINE>
+                   [[0. , 0. , 0. ],
+                    [0. , 0. , 3. ],
+                    [3.3, 2. , 0. ]]], dtype=float32)
             >>> J = JointNestedRaggedTensorDict({"T": [[1, 2, 3]]})
             >>> dense_dict = J.to_dense()
             >>> assert dense_dict.keys() == {'T', 'dim1/mask'}
@@ -529,6 +567,10 @@ class JointNestedRaggedTensorDict:
             array([[ True,  True,  True]])
             >>> dense_dict['T']
             array([[1, 2, 3]], dtype=uint8)
+            >>> J.to_dense(padding_side="up")
+            Traceback (most recent call last):
+                ...
+            ValueError: padding_side must be 'left' or 'right'; got 'up'
         """
         out = {key: self.tensors[f"dim0/{key}"] for key in self.keys_at_dim(0)}
 
@@ -536,21 +578,38 @@ class JointNestedRaggedTensorDict:
         L = shape
         indices = [tuple([])]
 
+        match padding_side:
+            case "left":
+                def offset_fn(ln: int, max_ln: int) -> int:
+                    return max_ln - ln
+            case "right":
+                def offset_fn(ln: int, max_ln: int) -> int:
+                    return 0
+            case _:
+                raise ValueError(f"padding_side must be 'left' or 'right'; got '{padding_side}'")
+
+        def pad_slice(ln: int, max_ln: int) -> slice:
+            offset = offset_fn(ln, max_ln)
+            return slice(offset, offset+ln)
+
         for dim in range(1, self.max_n_dims):
+            old_max_ln = max(L)
             indices = list(
                 itertools.chain.from_iterable(
-                    (base_idx + (j,) for j in range(ln)) for base_idx, ln in zip(indices, L)
+                    (base_idx + (offset_fn(ln, old_max_ln) + j,) for j in range(ln))
+                    for base_idx, ln in zip(indices, L)
                 )
             )
 
             L = self.tensors[f"dim{dim}/lengths"]
+            max_ln = max(L)
 
-            shape.append(max(L))
+            shape.append(max_ln)
 
             if self.keys_at_dim(dim):
                 out[f"dim{dim}/mask"] = np.zeros(shape=tuple(shape), dtype=bool)
                 for idx, ln in zip(indices, L):
-                    out[f"dim{dim}/mask"][idx + (slice(None, ln),)] = True
+                    out[f"dim{dim}/mask"][idx + (pad_slice(ln, max_ln),)] = True
 
             for key in self.keys_at_dim(dim):
                 slice_vals = self.tensors[f"dim{dim}/{key}"]
@@ -559,7 +618,7 @@ class JointNestedRaggedTensorDict:
 
                 out[key] = np.zeros(shape=tuple(shape), dtype=slice_vals[0].dtype)
                 for idx, ln, vs in zip(indices, L, slice_vals):
-                    out[key][idx + (slice(None, ln),)] = vs
+                    out[key][idx + (pad_slice(ln, max_ln),)] = vs
 
         return out
 

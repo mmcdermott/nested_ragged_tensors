@@ -297,6 +297,9 @@ These `bounds` tensors tell us that if we want to, for example, get the events c
 2 (indexing from 0), then we need to take elements `3:6` of the respective `dim_1` list of subtensors to do
 so.
 
+Note that you can change the direction of padding (throughout all levels of nesting) when `to_dense` is called
+by setting `padding_side` to either `"left"` or `"right"` (default is `"right"`).
+
 ### Computational Complexity Cost
 
 Ultimately, if we have `N` patients with a maximum of `M` events and a maximum of `C` codes per event, the
