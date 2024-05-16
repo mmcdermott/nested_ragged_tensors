@@ -199,10 +199,11 @@ class JointNestedRaggedTensorDict:
     def load(cls, fp: Path) -> JointNestedRaggedTensorDict:
         """Loads the tensors saved at the given filepath. Does not validate tensor structure.
 
+        Note ``load_slice`` for a more efficient alternative if you only want to access part of the tensor
+        dictionary.
+
         Args:
             The path from which to load
-
-        TODO(mmd): Look into using `safetensors.safe_open`
 
         Examples:
             >>> import tempfile
@@ -804,9 +805,6 @@ class JointNestedRaggedTensorDict:
               that consists of tensors saved at ``fp`` sliced at the integer indices in ``idx`` and
               then re-stacked together. Dimensionality will not be reduced. This behavior is consistent with
               how the tensors would be sliced under ``idx`` were they dense numpy arrays.
-
-
-        TODO(mmd): Look into using `safetensors.safe_open`
 
         Examples:
             >>> import tempfile
