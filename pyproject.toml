@@ -20,7 +20,7 @@ dependencies = ["safetensors", "numpy"]
 
 [project.optional-dependencies]
 dev = ["pre-commit"]
-tests = ["pytest", "ml-mixins", "loguru", "torch", "rootutils", "hydra-core", "humanize"]
+tests = ["pytest", "ml-mixins", "loguru", "torch", "rootutils", "hydra-core", "humanize", "pytest-cov"]
 
 [project.urls]
 Homepage = "https://github.com/mmcdermott/nested_ragged_tensors"
