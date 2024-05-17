@@ -580,17 +580,21 @@ class JointNestedRaggedTensorDict:
 
         match padding_side:
             case "left":
+
                 def offset_fn(ln: int, max_ln: int) -> int:
                     return max_ln - ln
+
             case "right":
+
                 def offset_fn(ln: int, max_ln: int) -> int:
                     return 0
+
             case _:
                 raise ValueError(f"padding_side must be 'left' or 'right'; got '{padding_side}'")
 
         def pad_slice(ln: int, max_ln: int) -> slice:
             offset = offset_fn(ln, max_ln)
-            return slice(offset, offset+ln)
+            return slice(offset, offset + ln)
 
         for dim in range(1, self.max_n_dims):
             old_max_ln = max(L)
