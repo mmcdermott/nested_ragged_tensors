@@ -64,6 +64,19 @@ class JointNestedRaggedTensorDict:
         "dim2/lengths": 2D_lengths, # lengths at the 2nd dimensionality level
         ...
     }
+
+    Examples:
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "A": [[1, 2, 3], [4, 5]],
+        ...     "B": [1, 2],
+        ... })
+        >>> print(J) # doctest: +NORMALIZE_WHITESPACE
+        JointNestedRaggedTensorDict({'dim1/lengths': array([3, 2]),
+                                     'dim1/bounds': array([3, 5]),
+                                     'dim1/A': [array([1, 2, 3], dtype=uint8), array([4, 5], dtype=uint8)],
+                                     'dim0/B': array([1, 2], dtype=uint8)},
+                                    schema={'A': <class 'numpy.uint8'>, 'B': <class 'numpy.uint8'>},
+                                    pre_raggedified=True)
     """
 
     def __init__(
@@ -88,13 +101,15 @@ class JointNestedRaggedTensorDict:
     def _get_lengths_and_values(
         cls, T: NESTED_NUM_LIST, curr_lengths: list[list[int]] = None
     ) -> tuple[list[list[int]], list]:
-        """Returns the lengths, bounds, and values of a nested list as flat, 1D tensors.
+        """Checks of T is a nested list of lists of a viable shape and returns the nested lengths and values.
 
         Args:
             T: A nested list of values.
             curr_lengths: The running lengths of the nested list being constructed through recursion.
             curr_bound_diffs: The running bound differences of the nested list being constructed through
                 recursion.
+
+        Returns: The nested lengths and the passed input (unmodified).
 
         Examples:
             >>> JointNestedRaggedTensorDict._get_lengths_and_values([1, 2, 3])
@@ -105,6 +120,14 @@ class JointNestedRaggedTensorDict:
             ...     [[[1, 2, 3], [3, 4]], [[3], [3, 2, 2], [3, 5]]]
             ... )
             ([[2, 3], [3, 2, 1, 3, 2]], [[1, 2, 3], [3, 4], [3], [3, 2, 2], [3, 5]])
+            >>> JointNestedRaggedTensorDict._get_lengths_and_values([[1, 2], ["foo", "bar"]])
+            Traceback (most recent call last):
+                ...
+            TypeError: T must be list of numbers or a nested list of lists. Got list[int, str]
+            >>> JointNestedRaggedTensorDict._get_lengths_and_values("foo")
+            Traceback (most recent call last):
+                ...
+            TypeError: T must be list of numbers or a nested list of lists. Got str
         """
         if curr_lengths is None:
             curr_lengths = []
@@ -114,14 +137,17 @@ class JointNestedRaggedTensorDict:
                 return curr_lengths + [[len(T) for T in Ts]], Ts
             case list() if is_ndim_list(T, dim=1):
                 return None, T
-            case list() as Ts:
+            case list() as Ts if all(isinstance(T, (list, tuple, np.ndarray)) for T in Ts):
                 return cls._get_lengths_and_values(
                     list(itertools.chain.from_iterable(Ts)), curr_lengths + [[len(T) for T in Ts]]
                 )
+            case list() as Ts:
+                types = ", ".join(sorted(list({type(T).__name__ for T in Ts})))
+                T_type = type(Ts).__name__
+                raise TypeError(f"T must be list of numbers or a nested list of lists. Got {T_type}[{types}]")
             case _:
-                raise TypeError(
-                    f"T must be list of numbers or a nested list of lists. Got {type(T)}[{type(T[0])}]"
-                )
+                T_type = type(T).__name__
+                raise TypeError(f"T must be list of numbers or a nested list of lists. Got {T_type}")
 
     @classmethod
     def _infer_dtype(cls, vals: Sequence[NUM_T]) -> np.dtype:
