@@ -151,6 +151,54 @@ class JointNestedRaggedTensorDict:
 
     @classmethod
     def _infer_dtype(cls, vals: Sequence[NUM_T]) -> np.dtype:
+        """Infers the minimal necessary dtype for storing the input data. Inputs must be ints or floats.
+
+        Args:
+            vals: The sequence of values to type.
+
+        Returns: The minimal possible numpy dtype to store the inputs. If any of the inputs are floats,
+            returns `np.float32`; otherwise returns the minimal possible either signed or unsigned integral
+            dtype given the extent of the data.
+
+        Raises:
+            ValueError: If the inputs are not all ints or floats or if there are no valid types available.
+
+        Examples:
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 3.2, 4])
+            <class 'numpy.float32'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 3, 4])
+            <class 'numpy.uint8'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 256])
+            <class 'numpy.uint16'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 66000])
+            <class 'numpy.uint32'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 40000000000])
+            <class 'numpy.uint64'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 66000, -66000])
+            <class 'numpy.int32'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128])
+            <class 'numpy.int16'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128, "foo"])
+            Traceback (most recent call last):
+                ...
+            ValueError: Vals are neither all floats or all ints
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 40000000000000000000, -40000000000000000000])
+            Traceback (most recent call last):
+                ...
+            ValueError: No valid type available for -40000000000000000000 - 40000000000000000000!
+        """
+        valid_possible_Ts = (
+            (
+                float,
+                int,
+            )
+            + NP_FLOAT_TYPES
+            + NP_INT_TYPES
+            + NP_UINT_TYPES
+        )
+        if not all(isinstance(v, valid_possible_Ts) for v in vals):
+            raise ValueError("Vals are neither all floats or all ints")
+
         mx, mn = max(vals), min(vals)
 
         if any(isinstance(v, (float,) + NP_FLOAT_TYPES) for v in vals):
@@ -162,15 +210,13 @@ class JointNestedRaggedTensorDict:
                 valid_Ts = NP_UINT_TYPES
             else:
                 valid_Ts = NP_INT_TYPES
-        else:
-            raise ValueError("Vals are neither all floats or all ints")
 
         for t in valid_Ts:
             if mx > tinfo_fn(t).max or mn < tinfo_fn(t).min:
                 continue
             else:
                 return t
-        raise ValueError(f"No valid type available for {mn}-{mx}!")
+        raise ValueError(f"No valid type available for {mn} - {mx}!")
 
     def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST]):
         """Initializes the tensors from lists of raw data entries."""
@@ -209,7 +255,7 @@ class JointNestedRaggedTensorDict:
             self.tensors[f"{dim_str}/{k}"] = vals
 
     def save(self, fp: Path):
-        """Saves the tensor to a file. See `JointNestedRagggedTensorDict.load` for examples.
+        """Saves the tensor to a file. See `JointNestedRaggedTensorDict.load` for examples.
 
         Args:
             fp: The path to which the tensors will be saved.
