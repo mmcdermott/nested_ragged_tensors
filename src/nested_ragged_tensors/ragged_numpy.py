@@ -919,7 +919,7 @@ class JointNestedRaggedTensorDict:
         return cls(out_tensors, pre_raggedified=True, schema=out_schema)
 
     @classmethod
-    def load_slice(cls, fp: Path, idx: int | slice | np.ndarray) -> JointNestedRaggedTensorDict:
+    def load_slice(cls, fp: Path, idx: int | slice | np.ndarray, split_last: bool=True) -> JointNestedRaggedTensorDict:
         """Loads the specified slice of the tensors saved at the given filepath.
 
         This method uses ``safetensors`` to fetch only the requested slice from the underlying file in an
@@ -929,6 +929,7 @@ class JointNestedRaggedTensorDict:
         Args:
             fp: The path from which to load
             idx: The slice to read.
+            split_last: If True, split the last level of data. If False, flatten the last level without padding.
 
         Returns
             * If ``idx`` is an `int` or a `slice` object, this returns a `JointNestedRaggedTensorDict`
@@ -948,10 +949,17 @@ class JointNestedRaggedTensorDict:
             ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
             ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
+            >>> J_FLAT = JointNestedRaggedTensorDict({
+            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...     "id":  [[1, 2,   3, 3,   4, 1, 2  ], [3, 3,   2, 2]],
+            ...     "val": [[1, 0.2, 0, 3.1, 0, 1, 2.2], [3, 3.3, 2, 0]],
+            ... })
             >>> with tempfile.TemporaryDirectory() as dirpath:
             ...     fp = Path(dirpath) / "tensors.pt"
             ...     J.save(fp)
             ...     J2 = JointNestedRaggedTensorDict.load_slice(fp, slice(None, 1))
+            ...     J2_FLAT = JointNestedRaggedTensorDict.load_slice(fp, slice(None, 1), split_last=False)
+            >>> assert J2.keys() == J_FLAT.keys(), f"Keys unequal: {J2.keys()} != {J_FLAT.keys()}"
             >>> J = J[:1]
             >>> assert J.keys() == J2.keys(), f"Keys unequal: {J.keys()} != {J2.keys()}"
             >>> J_dense = J.to_dense()
@@ -1006,8 +1014,10 @@ class JointNestedRaggedTensorDict:
                         tensors[k] = v
 
                     for dim in range(1, max_n_dims):
+                        is_last = (dim == max_n_dims - 1)
+                        tensor_dim = dim - 1 if is_last and not split_last else dim
                         try:
-                            tensors[f"dim{dim}/lengths"] = f.get_slice(f"dim{dim}/lengths")[st_i:end_i]
+                            tensors[f"dim{tensor_dim}/lengths"] = f.get_slice(f"dim{dim}/lengths")[st_i:end_i]
                         except SystemError as e:
                             raise ValueError(
                                 f"Error loading lengths for dim {dim} with st_i={st_i} and end_i={end_i}"
@@ -1024,12 +1034,16 @@ class JointNestedRaggedTensorDict:
                         vals_start = offset
                         vals_end = B[-1] + offset
 
-                        tensors[f"dim{dim}/bounds"] = B
+                        tensors[f"dim{tensor_dim}/bounds"] = B
 
                         for k in keys_by_dim[dim]:
                             v = f.get_slice(k)[vals_start:vals_end]
                             schema[k] = v.dtype
-                            tensors[k] = np.split(v, B[:-1])
+                            if is_last and not split_last:
+                                # Flatten the last level without padding
+                                tensors[k] = v
+                            else: # Split the data
+                                tensors[k] = np.split(v, B[:-1])
 
                         st_i = 0 if st_i == 0 else offset
                         end_i = B[-1] + offset
