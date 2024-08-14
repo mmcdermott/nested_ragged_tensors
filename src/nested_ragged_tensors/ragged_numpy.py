@@ -919,7 +919,9 @@ class JointNestedRaggedTensorDict:
         return cls(out_tensors, pre_raggedified=True, schema=out_schema)
 
     @classmethod
-    def load_slice(cls, fp: Path, idx: int | slice | np.ndarray) -> JointNestedRaggedTensorDict:
+    def load_slice(
+        cls, fp: Path, idx: int | slice | np.ndarray, flatten_max_dim: bool = False
+    ) -> JointNestedRaggedTensorDict:
         """Loads the specified slice of the tensors saved at the given filepath.
 
         This method uses ``safetensors`` to fetch only the requested slice from the underlying file in an
@@ -973,13 +975,27 @@ class JointNestedRaggedTensorDict:
             >>> J2_dense = J2.to_dense()
             >>> for k in J_dense.keys():
             ...     assert (J_dense[k] == J2_dense[k]).all(), f"Tensors at {k} unequal!"
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+            ... })
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.pt"
+            ...     J.save(fp)
+            ...     J2 = JointNestedRaggedTensorDict.load_slice(fp, 1, flatten_max_dim=True)
+            >>> J = J[1]
+            >>> assert J.keys() == J2.keys(), f"Keys unequal: {J.keys()} != {J2.keys()}"
+            >>> J2.tensors["dim0/id"]
+            array([3, 3, 2, 2], dtype=uint8)
+            >>> J2.tensors["dim0/val"]
+            array([3. , 3.3, 2. , 0. ], dtype=float32)
         """
 
         match idx:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
-                return cls.vstack([cls.load_slice(fp, int(i)) for i in arr])
+                return cls.vstack([cls.load_slice(fp, int(i), flatten_max_dim=flatten_max_dim) for i in arr])
             case int() as i:
-                return cls.load_slice(fp, slice(i, i + 1))[0]
+                return cls.load_slice(fp, slice(i, i + 1), flatten_max_dim=flatten_max_dim)[0]
             case slice() as S:
                 st_i = 0 if S.start is None else S.start
                 end_i = S.stop
@@ -1000,14 +1016,21 @@ class JointNestedRaggedTensorDict:
 
                     max_n_dims = max(keys_by_dim.keys()) + 1
 
-                    for key in keys_by_dim[0]:
+                    for k in keys_by_dim[0]:
                         v = f.get_slice(k)[st_i:end_i]
                         schema[k] = v.dtype
                         tensors[k] = v
 
+                    prior_B = None
                     for dim in range(1, max_n_dims):
                         try:
-                            tensors[f"dim{dim}/lengths"] = f.get_slice(f"dim{dim}/lengths")[st_i:end_i]
+                            lengths = f.get_slice(f"dim{dim}/lengths")[st_i:end_i]
+                            if flatten_max_dim and (dim == (max_n_dims - 1)):
+                                tensors[f"dim{dim-1}/lengths"] = np.array(
+                                    [sum(x) for x in np.split(lengths, prior_B[:-1])]
+                                )
+                            else:
+                                tensors[f"dim{dim}/lengths"] = lengths
                         except SystemError as e:
                             raise ValueError(
                                 f"Error loading lengths for dim {dim} with st_i={st_i} and end_i={end_i}"
@@ -1024,15 +1047,25 @@ class JointNestedRaggedTensorDict:
                         vals_start = offset
                         vals_end = B[-1] + offset
 
-                        tensors[f"dim{dim}/bounds"] = B
+                        if flatten_max_dim and (dim == (max_n_dims - 1)):
+                            new_split_bounds = np.array([max(x) for x in np.split(B, prior_B[:-1])])
+                            tensors[f"dim{dim-1}/bounds"] = new_split_bounds
+                        else:
+                            tensors[f"dim{dim}/bounds"] = B
 
                         for k in keys_by_dim[dim]:
                             v = f.get_slice(k)[vals_start:vals_end]
-                            schema[k] = v.dtype
-                            tensors[k] = np.split(v, B[:-1])
+                            if flatten_max_dim and (dim == (max_n_dims - 1)):
+                                k = k.replace(f"dim{dim}/", f"dim{dim-1}/")
+                                schema[k] = v.dtype
+                                tensors[k] = np.split(v, new_split_bounds[:-1])
+                            else:
+                                schema[k] = v.dtype
+                                tensors[k] = np.split(v, B[:-1])
 
                         st_i = 0 if st_i == 0 else offset
                         end_i = B[-1] + offset
+                        prior_B = B
 
                 return cls(tensors, schema=schema, pre_raggedified=True)
             case _:
