@@ -908,9 +908,13 @@ class JointNestedRaggedTensorDict:
                     out_tensors[lengths_key] = np.concatenate(
                         (out_tensors[lengths_key], T.tensors[lengths_key])
                     )
-                    out_tensors[bounds_key] = np.concatenate(
-                        (out_tensors[bounds_key], T.tensors[bounds_key] + out_tensors[bounds_key][-1])
-                    )
+
+                    if len(out_tensors[bounds_key]) == 0:
+                        out_tensors[bounds_key] = T.tensors[bounds_key]
+                    else:
+                        out_tensors[bounds_key] = np.concatenate(
+                             (out_tensors[bounds_key], T.tensors[bounds_key] + out_tensors[bounds_key][-1])
+                         )
 
                 for key in out_keys_at_dim[dim]:
                     out_tensors[f"dim{dim}/{key}"] = (
