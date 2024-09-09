@@ -54,8 +54,7 @@ def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
 
 
 class JointNestedRaggedTensorDict:
-    """
-    Stores tensors internally in the following dictionary structure:
+    """Stores tensors internally in the following dictionary structure:
     {
         "dim0/vals": {vals_tensor} # A true 1D tensor in raw tensor form. No associated lengths/bounds.
         "dim1/lengths": 1D_lengths, # lengths at the 1st dimensionality level
@@ -64,19 +63,6 @@ class JointNestedRaggedTensorDict:
         "dim2/lengths": 2D_lengths, # lengths at the 2nd dimensionality level
         ...
     }
-
-    Examples:
-        >>> J = JointNestedRaggedTensorDict({
-        ...     "A": [[1, 2, 3], [4, 5]],
-        ...     "B": [1, 2],
-        ... })
-        >>> print(J) # doctest: +NORMALIZE_WHITESPACE
-        JointNestedRaggedTensorDict({'dim1/lengths': array([3, 2]),
-                                     'dim1/bounds': array([3, 5]),
-                                     'dim1/A': [array([1, 2, 3], dtype=uint8), array([4, 5], dtype=uint8)],
-                                     'dim0/B': array([1, 2], dtype=uint8)},
-                                    schema={'A': <class 'numpy.uint8'>, 'B': <class 'numpy.uint8'>},
-                                    pre_raggedified=True)
     """
 
     def __init__(
@@ -85,6 +71,33 @@ class JointNestedRaggedTensorDict:
         schema: dict[str, np.dtype] | None = None,
         pre_raggedified: bool = False,
     ):
+        """Initializes JointNestedRaggedTensorDict with the given tensors.
+
+        Args:
+            tensors: The tensors to be stored.
+            schema: The schema for the tensors, if known.
+            pre_raggedified: If `True`, the tensors are assumed to be pre-raggedified and are stored as-is. If
+                `False`, the tensors are assumed to be raw data and are raggedified.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "A": [[1, 2, 3], [4, 5]],
+            ...     "B": [1, 2],
+            ... })
+            >>> print(J) # doctest: +NORMALIZE_WHITESPACE
+            JointNestedRaggedTensorDict({'dim1/lengths': array([3, 2]),
+                                         'dim1/bounds': array([3, 5]),
+                                         'dim1/A': [array([1, 2, 3], dtype=uint8),
+                                                    array([4, 5], dtype=uint8)],
+                                         'dim0/B': array([1, 2], dtype=uint8)},
+                                        schema={'A': <class 'numpy.uint8'>, 'B': <class 'numpy.uint8'>},
+                                        pre_raggedified=True)
+            >>> J = JointNestedRaggedTensorDict({"S": []})
+            Traceback (most recent call last):
+                ...
+            ValueError: Empty list found for key S! Nested Ragged Tensors does not support empty tensors.
+        """
+
         self.schema = schema if schema is not None else {}
         if pre_raggedified:
             self.tensors = tensors
@@ -222,6 +235,11 @@ class JointNestedRaggedTensorDict:
         """Initializes the tensors from lists of raw data entries."""
         self.tensors = {}
         for k, T in tensors.items():
+            if len(T) == 0:
+                raise ValueError(
+                    f"Empty list found for key {k}! Nested Ragged Tensors does not support empty tensors."
+                )
+
             if not isinstance(T[0], (list, tuple, np.ndarray)):
                 dim_str = "dim0"
                 if k not in self.schema:
