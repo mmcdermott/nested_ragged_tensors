@@ -821,6 +821,8 @@ class JointNestedRaggedTensorDict:
     def concatenate(cls, tensors: list) -> JointNestedRaggedTensorDict:
         """Concatenates these tensors with other identically keyed tensors along the existing first dim.
 
+        Critically, this function **modifies** the input tensors in place.
+
         Args:
             tensors: The tensors to concatenate.
 
@@ -875,18 +877,18 @@ class JointNestedRaggedTensorDict:
                     [4. , 2. , 0. ],
                     [0. , 0. , 0. ],
                     [3. , 0. , 0. ]]])
-            >>> J1 = JointNestedRaggedTensorDict({
-            ...     "T": [1, 2, 3],
-            ...     "id": [[1, 2, 3], [3, 4], [1, 2]],
-            ... }, schema={"T": int, "id": int, "val": float})
+            >>> J1 = JointNestedRaggedTensorDict(
+            ...     {"T": [1, 2, 3], "id": [[1, 2, 3], [3, 4], [1, 2]]},
+            ...     schema={"T": int, "id": int, "val": float}
+            ... )
             >>> concatenated = JointNestedRaggedTensorDict.concatenate([J1])
             >>> dense_dict = concatenated.to_dense()
             >>> dense_dict['T']
             array([1, 2, 3])
-            >>> J2 = JointNestedRaggedTensorDict({
-            ...     "T": [6, 7, 8, 9],
-            ...     "id": [[3], [3, 2, 2], [1], [1]],
-            ... }, schema={"T": int, "id": int, "val": float})
+            >>> J2 = JointNestedRaggedTensorDict(
+            ...     {"T": [6, 7, 8, 9], "id": [[3], [3, 2, 2], [1], [1]]},
+            ...     schema={"T": int, "id": int, "val": float}
+            ... )
             >>> concatenated = JointNestedRaggedTensorDict.concatenate([J1, J2])
             >>> dense_dict = concatenated.to_dense()
             >>> dense_dict['T']
@@ -896,6 +898,23 @@ class JointNestedRaggedTensorDict:
                    [3, 4, 0],
                    [1, 2, 0],
                    [3, 0, 0],
+                   [3, 2, 2],
+                   [1, 0, 0],
+                   [1, 0, 0]])
+            >>> J1 = JointNestedRaggedTensorDict(
+            ...     {"T": [1, 2, 3], "id": [[1, 2, 3], [3, 4], [1, 2]]},
+            ...     schema={"T": int, "id": int, "val": float}
+            ... )
+            >>> J2 = JointNestedRaggedTensorDict(
+            ...     {"T": [6, 7, 8, 9], "id": [[3], [3, 2, 2], [1], [1]]},
+            ...     schema={"T": int, "id": int, "val": float}
+            ... )
+            >>> concatenated = JointNestedRaggedTensorDict.concatenate([J1[3:], J2[3:]])
+            >>> dense_dict = concatenated.to_dense()
+            >>> dense_dict['T']
+            array([6, 7, 8, 9])
+            >>> dense_dict['id']
+            array([[3, 0, 0],
                    [3, 2, 2],
                    [1, 0, 0],
                    [1, 0, 0]])
