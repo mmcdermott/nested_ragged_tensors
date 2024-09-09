@@ -912,12 +912,15 @@ class JointNestedRaggedTensorDict:
             >>> concatenated = JointNestedRaggedTensorDict.concatenate([J1[3:], J2[3:]])
             >>> dense_dict = concatenated.to_dense()
             >>> dense_dict['T']
-            array([6, 7, 8, 9])
+            array([9])
             >>> dense_dict['id']
-            array([[3, 0, 0],
-                   [3, 2, 2],
-                   [1, 0, 0],
-                   [1, 0, 0]])
+            array([[1]])
+            >>> concatenated = JointNestedRaggedTensorDict.concatenate([J2[3:], J1[3:]])
+            >>> dense_dict = concatenated.to_dense()
+            >>> dense_dict['T']
+            array([9])
+            >>> dense_dict['id']
+            array([[1]])
         """
 
         if len(tensors) == 1:
@@ -955,8 +958,10 @@ class JointNestedRaggedTensorDict:
                     out_tensors[lengths_key] = np.concatenate(
                         (out_tensors[lengths_key], T.tensors[lengths_key])
                     )
+
+                    last_bound = out_tensors[bounds_key][-1] if len(out_tensors[bounds_key]) > 0 else 0
                     out_tensors[bounds_key] = np.concatenate(
-                        (out_tensors[bounds_key], T.tensors[bounds_key] + out_tensors[bounds_key][-1])
+                        (out_tensors[bounds_key], T.tensors[bounds_key] + last_bound)
                     )
 
                     for key in out_keys_at_dim[dim]:
