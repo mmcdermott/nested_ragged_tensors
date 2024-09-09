@@ -11,34 +11,38 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
       fail-fast: false
 
     timeout-minutes: 30
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install packages
         run: |
-          pip install -e .
-          pip install pytest
-          pip install pytest-cov[toml]
-          pip install rootutils
+          pip install -e .[tests]
 
       #----------------------------------------------
       #              run test suite
       #----------------------------------------------
       - name: Run tests
         run: |
-          pytest -v --doctest-modules --cov --ignore=performance_tests
+          pytest -v --doctest-modules --cov=src --junitxml=junit.xml -s --ignore=performance_tests
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
