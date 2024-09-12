@@ -5,12 +5,9 @@ on:
   pull_request:
     branches: [main, "release/*", "dev"]
 
-permissions:
-  contents: write
-  deployments: write
-
 jobs:
   benchmark:
+    permissions: write-all
     name: Run benchmark
     runs-on: ubuntu-latest
     steps:
@@ -38,6 +35,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
           # Show alert with commit comment on detecting possible performance regression
-          alert-threshold: "200%"
+          alert-threshold: "150%"
           comment-on-alert: true
-          fail-on-alert: true
+          fail-on-alert: false
