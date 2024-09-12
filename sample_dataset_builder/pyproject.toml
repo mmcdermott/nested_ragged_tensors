@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sample_dataset_builder"
+version = "0.0.1"
+authors = [
+  { name="Matthew McDermott", email="mattmcdermott8@gmail.com" },
+]
+description = "Builds sample MEDS datasets for testing"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = ["annotated-types", "numpy", "hydra-core"]
+
+[project.optional-dependencies]
+dev = ["pre-commit"]
+tests = ["pytest", "pytest-cov"]
+
+[project.scripts]
+gen_sample_MEDS_data = "sample_dataset_builder.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/mmcdermott/nested_ragged_tensors"
+Issues = "https://github.com/mmcdermott/nested_ragged_tensors/issues"
