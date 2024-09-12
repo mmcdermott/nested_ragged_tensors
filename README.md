@@ -322,10 +322,12 @@ which leverage Hugging Face's `safetensors` library for internal manipulation.
 
 ## Performance Testing
 
-Run `python performance_tests/test_times.py` for a comparison across several strategies of using these data.
+Performance over time on various aspects of an approximate pytorch dataset using this repo can be seen at
+[https://mmcdermott.github.io/nested_ragged_tensors/dev/bench/](https://mmcdermott.github.io/nested_ragged_tensors/dev/bench/)
 
-For example, to use a configuration of nested events and codes that is similar to the MIMIC-IV dataset, you
-can run the below code (note this takes a lot of memory for the "dense" view of the data).
+In older commits (see the GitHub history for more details), you could also run `python performance_tests/test_times.py` for a comparison across several strategies of using these data. A
+re-introduction of this feature in a more user-friendly format is planned for the future, in concert with the
+tracking over time of the performance of this package documented at the above link.
 
 ```python
 python performance_tests/test_times.py dataset_spec=mimic dataset_spec.num_patients=1250 dataset_spec.max_events_per_item=256 batch_size=64

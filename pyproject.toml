@@ -23,7 +23,7 @@ dependencies = ["safetensors", "numpy"]
 [project.optional-dependencies]
 dev = ["pre-commit"]
 tests = ["pytest", "pytest-cov"]
-performance_testing = ["ml-mixins", "loguru", "torch", "rootutils", "hydra-core", "humanize"]
+benchmarks = ["ml-mixins", "torch", "rootutils", "memray"]
 
 [project.urls]
 Homepage = "https://github.com/mmcdermott/nested_ragged_tensors"

@@ -1,0 +1,24 @@
+_target_: sample_dataset_builder.DatasetGenerator
+
+static_vocab_size: 16
+vocab_size: ???
+time_between_events_per_subj:
+  _target_: sample_dataset_builder.PositiveNumGenerator
+  X: ???
+  freq: null
+frac_code_occurrences_with_value:
+  _target_: sample_dataset_builder.ProportionGenerator
+  X: ???
+  freq: null
+num_events_per_subject:
+  _target_: sample_dataset_builder.PositiveIntGenerator
+  X: ???
+  freq: null
+num_measurements_per_event:
+  _target_: sample_dataset_builder.PositiveIntGenerator
+  X: ???
+  freq: null
+num_static_measurements_per_subject:
+  _target_: sample_dataset_builder.PositiveIntGenerator
+  X: ???
+  freq: null
