@@ -1,0 +1,22 @@
+defaults:
+  - default
+  - _self_
+
+vocab_size: 1024
+
+# Subjects have events on average every 1, 2, 3, 4, or 5 days with uniform probability across subjects.
+time_between_events_per_subj:
+  X: [1, 2, 3, 4, 5]
+
+# 60% of the codes have no values, 40% have values 80% of the time.
+frac_code_occurrences_with_value:
+  X: [0, 0.8]
+  freq: [6, 4]
+
+num_static_measurements_per_subject:
+  X: [2]
+num_events_per_subject:
+  X: [1, 20, 33, 4, 5]
+  freq: [1, 2, 1, 3, 4]
+num_measurements_per_event:
+  X: [1, 2, 3, 10, 5]

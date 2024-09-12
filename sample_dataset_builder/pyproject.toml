@@ -3,12 +3,12 @@ requires = ["setuptools>=64", "setuptools-scm>=8.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nested_ragged_tensors"
-dynamic = ["version"]
+name = "sample_dataset_builder"
+version = "0.0.1"
 authors = [
   { name="Matthew McDermott", email="mattmcdermott8@gmail.com" },
 ]
-description = "Utilities for efficiently working with, saving, and loading, collections of connected nested ragged tensors in PyTorch"
+description = "Builds sample MEDS datasets for testing"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -16,16 +16,14 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = ["safetensors", "numpy"]
-
-[tool.setuptools_scm]
+dependencies = ["annotated-types", "numpy", "hydra-core"]
 
 [project.optional-dependencies]
 dev = ["pre-commit"]
 tests = ["pytest", "pytest-cov"]
-benchmarks = [
-  "ml-mixins", "loguru", "torch", "rootutils", "hydra-core", "humanize", "memray",
-]
+
+[project.scripts]
+gen_sample_MEDS_data = "sample_dataset_builder.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/mmcdermott/nested_ragged_tensors"

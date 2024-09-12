@@ -1,7 +1,7 @@
 default_language_version:
   python: python3
 
-exclude: "sample_data|docs/MIMIC_IV_tutorial/wandb_reports"
+exclude: "sample_dataset/dataset.pkl"
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -38,6 +38,7 @@ repos:
     rev: v2.2.0
     hooks:
       - id: autoflake
+        args: [--in-place, --remove-all-unused-imports]
 
   # python upgrading syntax to newer version
   - repo: https://github.com/asottile/pyupgrade

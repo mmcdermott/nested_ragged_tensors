@@ -1,0 +1,15 @@
+defaults:
+  - _self_
+  - dataset_spec: sample
+
+seed: 1
+output_dir: "sample_dataset"
+output_filepath: "dataset.pkl"
+do_overwrite: False
+
+N_patients: 1000
+max_seq_len: 256
+
+hydra:
+  run:
+    dir: "${output_dir}"
