@@ -164,3 +164,4 @@ sample_dataset/*.log
 sample_dataset/memray_stats.json
 sample_dataset/.memray
 sample_dataset/.hydra/*
+benchmark/outputs

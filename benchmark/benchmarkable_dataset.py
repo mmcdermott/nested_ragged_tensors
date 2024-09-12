@@ -107,7 +107,7 @@ class BenchmarkableDataset(Dataset, TimeableMixin, ABC):
             cls.write(data_obj, data_dir)
             write_time = datetime.now() - st
 
-        return {"data_dir": data_dir}, {"build_time": build_time, "write_time": write_time}, memory_stats
+        return {"data_dir": data_dir}, {"build": build_time, "write": write_time}, memory_stats
 
     def __len__(self) -> int:
         return self.N
