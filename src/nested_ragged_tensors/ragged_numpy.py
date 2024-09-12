@@ -704,14 +704,14 @@ class JointNestedRaggedTensorDict:
 
             bounds = self.tensors[f"dim{dim}/bounds"]
             for key in self.keys_at_dim(dim):
-                slice_vals = np.split(self.tensors[f"dim{dim}/{key}"], bounds[:-1])
-
-                if not slice_vals:
+                if len(self.tensors[f"dim{dim}/{key}"]) == 0:
                     continue
 
-                out[key] = np.zeros(shape=tuple(shape), dtype=slice_vals[0].dtype)
-                for idx, ln, vs in zip(indices, L, slice_vals):
-                    out[key][idx + (pad_slice(ln, max_ln),)] = vs
+                out[key] = np.zeros(shape=tuple(shape), dtype=self.tensors[f"dim{dim}/{key}"].dtype)
+                st = 0
+                for idx, ln, b in zip(indices, L, bounds):
+                    out[key][idx + (pad_slice(ln, max_ln),)] = self.tensors[f"dim{dim}/{key}"][st:b]
+                    st = b
 
         return out
 
