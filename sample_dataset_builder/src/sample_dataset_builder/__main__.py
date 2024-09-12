@@ -29,8 +29,8 @@ def main(cfg: DictConfig):
     G = hydra.utils.instantiate(cfg.dataset_spec)
     rng = np.random.default_rng(cfg.seed)
 
-    logger.info(f"Generating dataset with {cfg.N_patients} patients.")
-    dataset = G.rvs(cfg.N_patients, rng)
+    logger.info(f"Generating dataset with {cfg.N_subjects} subjects.")
+    dataset = G.rvs(cfg.N_subjects, rng)
 
     logger.info(f"Saving dataset to {str(output_filepath.resolve())}.")
     with open(output_filepath, "wb") as f:

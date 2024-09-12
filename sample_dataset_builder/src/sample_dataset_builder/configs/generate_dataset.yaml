@@ -7,8 +7,7 @@ output_dir: "sample_dataset"
 output_filepath: "dataset.pkl"
 do_overwrite: False
 
-N_patients: 1000
-max_seq_len: 256
+N_subjects: 1000
 
 hydra:
   run:
