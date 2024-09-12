@@ -5,12 +5,9 @@ on:
   pull_request:
     branches: [main, "release/*", "dev"]
 
-permissions:
-  contents: write
-  deployments: write
-
 jobs:
   benchmark:
+    permissions: write-all
     name: Run benchmark
     runs-on: ubuntu-latest
     steps:
