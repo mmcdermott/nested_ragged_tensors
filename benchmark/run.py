@@ -18,6 +18,8 @@ from benchmark.nrt_dataset import NRTDataset
 @pytest.mark.parametrize("max_seq_len", [128, 256, 512])
 @pytest.mark.parametrize("num_epochs", [5])
 def test_profile(tmp_path: Path, batch_size: int, max_seq_len: int, num_epochs: int):
+    print("")
+    print(f"Running with batch_size={batch_size}, max_seq_len={max_seq_len}, num_epochs={num_epochs}")
     with open(SAMPLE_DATASET_PATH, mode="rb") as f:
         raw_D = pickle.load(f)
 
