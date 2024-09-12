@@ -22,24 +22,33 @@ def test_profile(tmp_path: Path, batch_size: int, max_seq_len: int, num_epochs: 
         raw_D = pickle.load(f)
 
     out = {}
-    with NRTDataset.TemporaryDataset(raw_D, tmp_path) as (kwargs, prep_times, disk_size):
+    with NRTDataset.TemporaryDataset(raw_D, tmp_path) as (kwargs, stats):
+        prep_times, disk_size, prep_mem_stats = stats
+        out["prep_mem_stats"] = prep_mem_stats
         out["prep_times"] = prep_times
         out["disk_size"] = disk_size
         print(f"Dataset takes up {humanize.naturalsize(disk_size)}")
+        print(f"Preparation times: {prep_times}")
+        prep_mem_stats_summ = {
+            k: humanize.naturalsize(v["metadata"]["peak_memory"]) for k, v in prep_mem_stats.items()
+        }
+        print(f"Preparation memory stats: {prep_mem_stats_summ}")
 
         D = NRTDataset(**kwargs, max_seq_len=max_seq_len)
-        batch_sizes, epoch_durations, memray_stats = D.benchmark(
+        batch_sizes, epoch_durations = D.benchmark(
             batch_size=batch_size,
             num_epochs=num_epochs,
         )
 
         out["batch_sizes"] = batch_sizes
         out["epoch_durations"] = epoch_durations
-        out["memray_stats"] = memray_stats
-        out["peak_memory"] = memray_stats["metadata"]["peak_memory"]
+        out["memory_stats"] = D.memory_stats
+        out["peak_memory_read"] = D.memory_stats["read"]["metadata"]["peak_memory"]
+        out["peak_memory_benchmark"] = D.memory_stats["benchmark"]["metadata"]["peak_memory"]
 
         print(D._profile_durations())
-        print(f"Peak memory: {humanize.naturalsize(out['peak_memory'])}")
+        print(f"Peak reading memory: {humanize.naturalsize(out['peak_memory_read'])}")
+        print(f"Peak benchmarking memory: {humanize.naturalsize(out['peak_memory_benchmark'])}")
 
     average_epoch_duration = np.mean(epoch_durations)
     print(f"Average epoch duration: {average_epoch_duration} seconds")
