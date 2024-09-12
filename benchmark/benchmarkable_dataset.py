@@ -1,12 +1,15 @@
 import logging
 import os
+import sys
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+import torch
 from memray import Tracker
 from mixins import TimeableMixin
 from torch.utils.data import DataLoader, Dataset
@@ -19,11 +22,11 @@ import json
 import subprocess
 
 
-def get_memray_stats(memray_tracker_fp: Path, memray_stats_fp: Path):
+def get_memray_stats(memray_tracker_fp: Path, memray_stats_fp: Path) -> dict:
     memray_stats_cmd = f"memray stats {memray_tracker_fp} --json -o {memray_stats_fp} -f"
     subprocess.run(memray_stats_cmd, shell=True, check=True)
     try:
-        json.loads(memray_stats_fp.read_text())
+        return json.loads(memray_stats_fp.read_text())
     except Exception as e:
         raise ValueError(f"Failed to parse memray stats file at {memray_stats_fp}") from e
 
@@ -32,47 +35,27 @@ class BenchmarkableDataset(Dataset, TimeableMixin, ABC):
     def __init__(
         self,
         data_dir: Path,
-        memray_stats_fp: Path,
         max_seq_len: int | None = None,
-        min_seq_len: int | None = None,
         task_bounds: list[tuple[int, int, int]] | None = None,
     ):
         super().__init__()
+        # TODO(mmd): Need to handle min seq length too.
         self.max_seq_len = max_seq_len
-        self.min_seq_len = min_seq_len
         self.task_bounds = task_bounds
         self.read(data_dir)
         if not hasattr(self, "N"):
             raise AttributeError("Dataset must have attribute 'N' after reading data.")
 
-    @property
-    def total_memory_stats(self) -> dict:
-        if not self.memray_stats_fp.exists():
-            raise FileNotFoundError(f"Memray stats file not found at {self.memray_stats_fp}")
-        return json.loads(self.memray_stats_fp.read_text())
-
     @classmethod
     @contextmanager
     def TemporaryDataset(cls, data: SAMPLE_DATASET_T, root_dir: Path):
-        memray_stats_fp = root_dir / "memray_stats.json"
         with TemporaryDirectory(prefix=str(root_dir.resolve())) as tmpdir:
             tmpdir = Path(tmpdir)
-            memray_fp = tmpdir / ".memray"
 
             cnstr_kwargs, prep_times = cls._prep(data, tmpdir)
-            cnstr_kwargs["memray_stats_fp"] = memray_stats_fp
 
             disk_size = sum((Path(d) / f).stat().st_size for d, _, files in os.walk(tmpdir) for f in files)
-
-            try:
-                if memray_fp.exists():
-                    logger.warning(f"Memray tracker file already exists at {memray_fp}. Overwriting.")
-                    memray_fp.unlink()
-
-                with Tracker(memray_fp, follow_fork=True):
-                    yield cnstr_kwargs, prep_times, disk_size
-            finally:
-                _ = get_memray_stats(memray_fp, memray_stats_fp)
+            yield cnstr_kwargs, prep_times, disk_size
 
     @classmethod
     @abstractmethod
@@ -118,3 +101,34 @@ class BenchmarkableDataset(Dataset, TimeableMixin, ABC):
 
     def dataloader(self, *args, **kwargs) -> DataLoader:
         return DataLoader(self, *args, collate_fn=self.collate, **kwargs)
+
+    @staticmethod
+    def tensor_size(a: torch.Tensor) -> int:
+        return sys.getsizeof(a) + torch.numel(a) * a.element_size()
+
+    @TimeableMixin.TimeAs
+    def benchmark(
+        self, batch_size: int, num_epochs: int = 1
+    ) -> tuple[dict[str, list[int]], list[timedelta], dict]:
+        torch.manual_seed(1)
+
+        dataloader = self.dataloader(batch_size=batch_size, shuffle=True)
+
+        sizes = defaultdict(list)
+        epoch_durations = []
+
+        with TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            memray_fp = tmpdir / ".memray"
+            memray_stats_fp = tmpdir / "memray_stats.json"
+
+            with Tracker(memray_fp, follow_fork=True):
+                for epoch in range(num_epochs):
+                    epoch_start = datetime.now()
+                    for B in dataloader:
+                        for k, v in B.items():
+                            sizes[k].append(BenchmarkableDataset.tensor_size(v))
+                    epoch_durations.append(datetime.now() - epoch_start)
+            memray_stats = get_memray_stats(memray_fp, memray_stats_fp)
+
+        return sizes, epoch_durations, memray_stats

@@ -3,12 +3,14 @@ from functools import cached_property
 from pathlib import Path
 
 import numpy as np
-from benchmarkable_dataset import BenchmarkableDataset
+import torch
 from mixins import TimeableMixin
 from torch.utils.data import default_collate
 
 from nested_ragged_tensors.ragged_numpy import JointNestedRaggedTensorDict
 from sample_dataset_builder import SAMPLE_DATASET_T
+
+from .benchmarkable_dataset import BenchmarkableDataset
 
 
 class NRTDataset(BenchmarkableDataset):
@@ -71,5 +73,6 @@ class NRTDataset(BenchmarkableDataset):
     def collate(self, batch: list[tuple[dict, JointNestedRaggedTensorDict]]) -> dict:
         dynamics = [d for _, d in batch]
         collated_dynamics = JointNestedRaggedTensorDict.vstack(dynamics).to_dense()
+        collated_dynamics = {k: torch.from_numpy(v) for k, v in collated_dynamics.items()}
         collated_static_data = default_collate([s for s, _ in batch])
         return {**collated_static_data, **collated_dynamics}
