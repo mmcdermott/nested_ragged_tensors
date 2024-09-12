@@ -683,6 +683,16 @@ class JointNestedRaggedTensorDict:
             offset = offset_fn(ln, max_ln)
             return slice(offset, offset + ln)
 
+        def flat_indices(shape: list[int], indices: list[tuple], L: np.ndarray) -> np.ndarray:
+            orig_indices = []
+            for idx, ln in zip(indices, L):
+                sl = pad_slice(ln, shape[-1])
+                for i in range(sl.start, sl.stop):
+                    orig_indices.append(idx + (i,))
+
+            multi_index = tuple(np.array(x) for x in zip(*orig_indices))
+            return np.ravel_multi_index(multi_index, shape)
+
         for dim in range(1, self.max_n_dims):
             old_max_ln = max(L)
             indices = list(
@@ -702,16 +712,13 @@ class JointNestedRaggedTensorDict:
                 for idx, ln in zip(indices, L):
                     out[f"dim{dim}/mask"][idx + (pad_slice(ln, max_ln),)] = True
 
-            bounds = self.tensors[f"dim{dim}/bounds"]
+            flat_idx = flat_indices(shape, indices, L)
             for key in self.keys_at_dim(dim):
                 if len(self.tensors[f"dim{dim}/{key}"]) == 0:
                     continue
 
                 out[key] = np.zeros(shape=tuple(shape), dtype=self.tensors[f"dim{dim}/{key}"].dtype)
-                st = 0
-                for idx, ln, b in zip(indices, L, bounds):
-                    out[key][idx + (pad_slice(ln, max_ln),)] = self.tensors[f"dim{dim}/{key}"][st:b]
-                    st = b
+                np.put(out[key], flat_idx, self.tensors[f"dim{dim}/{key}"])
 
         return out
 
