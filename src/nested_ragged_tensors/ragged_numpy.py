@@ -551,26 +551,14 @@ class JointNestedRaggedTensorDict:
                         "Cannot index into a tensor collection with a 1D tensor with an integer."
                     )
 
-                with_dim = self[slice(i, i + 1)]
-                out_tensors = {}
-                for k, T in with_dim.tensors.items():
-                    dim, key = k.split("/")
-                    dim_int = int(dim[3:])
+                return self[slice(i, i + 1)].squeeze(dim=0)
 
-                    if dim_int == 1 and key in ("lengths", "bounds"):
-                        # These keys will be dropped as this tensor will become a 1D tensor in truth.
-                        continue
-
-                    new_key = f"dim{dim_int - 1}/{key}"
-                    out_tensors[new_key] = T
-
-                return self.__class__(processed_tensors=out_tensors, schema=self.schema)
             case slice() as S:
-                st_i = 0 if S.start is None else S.start
-                end_i = S.stop
-
                 if S.step not in (None, 1):
                     raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
+
+                st_i = 0 if S.start is None else S.start
+                end_i = S.stop
 
                 out_tensors = {}
                 for key in self.keys_at_dim(0):
@@ -755,6 +743,59 @@ class JointNestedRaggedTensorDict:
 
         return out
 
+    def squeeze(self, dim: int) -> JointNestedRaggedTensorDict:
+        """Squeeze these tensors to remove an existing, singleton first dimension.
+
+        Args:
+            dim: This is added for compatibility with the PyTorch signature, but must be 0 here.
+
+        Raises:
+            ValueError: If dim != 0 or if the tensors do not have a singleton dimension at the specified
+                level.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T": [[1, 2]],
+            ...     "id": [[[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]]],
+            ...     "val": [[[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]]],
+            ... }, schema={"T": int, "id": int, "val": float})
+            >>> dense_dict = J.squeeze(dim=0).to_dense()
+            >>> dense_dict['T']
+            array([1, 2])
+            >>> dense_dict['id']
+            array([[[1, 2, 3],
+                    [3, 4, 0],
+                    [1, 2, 0]],
+            <BLANKLINE>
+                   [[3, 0, 0],
+                    [3, 2, 2],
+                    [0, 0, 0]]])
+            >>> dense_dict['val']
+            array([[[1. , 0.2, 0. ],
+                    [3.1, 0. , 0. ],
+                    [1. , 2.2, 0. ]],
+            <BLANKLINE>
+                   [[3. , 0. , 0. ],
+                    [3.3, 2. , 0. ],
+                    [0. , 0. , 0. ]]])
+        """
+        if dim != 0:
+            raise ValueError(f"Only supports dim = 0 for now; got {dim}")
+
+        out_tensors = {}
+        for k, T in self.tensors.items():
+            dim, key = k.split("/")
+            dim_int = int(dim[3:])
+
+            if dim_int == 1 and key in ("lengths", "bounds"):
+                # These keys will be dropped as this tensor will become a 1D tensor in truth.
+                continue
+
+            new_key = f"dim{dim_int - 1}/{key}"
+            out_tensors[new_key] = T
+
+        return self.__class__(processed_tensors=out_tensors, schema=self.schema)
+
     def unsqueeze(self, dim: int) -> JointNestedRaggedTensorDict:
         """Expands these tensors to have a new, singleton first dimension.
 
@@ -765,6 +806,10 @@ class JointNestedRaggedTensorDict:
             ValueError: If dim != 0 or if the tensors are exclusively non-ragged 1D tensors.
 
         Examples:
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]}, schema={"T": int})
+            >>> dense_dict = J.unsqueeze(dim=0).to_dense()
+            >>> dense_dict['T']
+            array([[1, 2, 3]])
             >>> J = JointNestedRaggedTensorDict({
             ...     "T": [1, 2],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
@@ -789,10 +834,6 @@ class JointNestedRaggedTensorDict:
                     [[3. , 0. , 0. ],
                      [3.3, 2. , 0. ],
                      [0. , 0. , 0. ]]]])
-            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]}, schema={"T": int})
-            >>> dense_dict = J.unsqueeze(dim=0).to_dense()
-            >>> dense_dict['T']
-            array([[1, 2, 3]])
         """
         if dim != 0:
             raise ValueError(f"Only supports dim = 0 for now; got {dim}")
@@ -806,7 +847,7 @@ class JointNestedRaggedTensorDict:
             lengths = np.array([len(self.tensors[f"dim0/{key}"])])
             bounds = lengths.copy()
         else:
-            lengths = np.array([len(self.tensors["dim1/lengths"])])
+            lengths = np.array([len(self)])
             bounds = lengths.copy()
 
         out_tensors["dim1/lengths"] = lengths
@@ -830,6 +871,7 @@ class JointNestedRaggedTensorDict:
         """Returns the length (which is shared across all keys) of these tensors.
 
         Examples:
+            >>> import tempfile
             >>> J = JointNestedRaggedTensorDict({
             ...     "T": [[1, 2, 3], [4, 5]],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
@@ -837,8 +879,19 @@ class JointNestedRaggedTensorDict:
             ... })
             >>> len(J)
             2
+            >>> with tempfile.NamedTemporaryFile() as f:
+            ...     fp = Path(f.name)
+            ...     J.save(fp)
+            ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...     len(J2)
+            2
         """
-        return len(self.tensors["dim1/lengths"])
+        if self._tensors is None:
+            with safe_open(self._tensors_fp, framework="np") as f:
+                lengths = f.get_slice("dim1/lengths")
+                return lengths.get_shape()[0]
+        else:
+            return len(self.tensors["dim1/lengths"])
 
     @classmethod
     def vstack(cls, tensor_dicts: list) -> JointNestedRaggedTensorDict:
