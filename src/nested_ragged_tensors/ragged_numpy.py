@@ -830,6 +830,52 @@ class JointNestedRaggedTensorDict:
 
         return self.__class__(processed_tensors=out_tensors, schema=self.schema)
 
+    def flatten(self, dim: int = -1) -> JointNestedRaggedTensorDict:
+        """Flattens these tensors along the specified dimension. Currently, only supports dim = -1.
+
+        Args:
+            dim: The dimension along which to flatten the tensors. Must be -1 currently.
+
+        Raises:
+            ValueError: If dim != -1.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T": [1, 2],
+            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ... }, schema={"T": int, "id": int, "val": float})
+            >>> dense_dict = J.to_dense()
+            >>> dense_dict['T']
+            array([1, 2])
+            >>> dense_dict['id']
+            array([[[1, 2, 3],
+                    [3, 4, 0],
+                    [1, 2, 0]],
+            <BLANKLINE>
+                   [[3, 0, 0],
+                    [3, 2, 2],
+                    [0, 0, 0]]])
+            >>> dense_dict['val']
+            array([[[1. , 0.2, 0. ],
+                    [3.1, 0. , 0. ],
+                    [1. , 2.2, 0. ]],
+            <BLANKLINE>
+                   [[3. , 0. , 0. ],
+                    [3.3, 2. , 0. ],
+                    [0. , 0. , 0. ]]])
+            >>> dense_dict = J.flatten(dim=-1).to_dense().to_dense()
+            >>> dense_dict['T']
+            array([1, 2])
+            >>> dense_dict['id']
+            array([[1, 2, 3, 3, 4, 1, 2],
+                   [3, 3, 2, 2, 0, 0, 0]])
+            >>> dense_dict['val']
+            array([[1. , 0.2, 3.1, 1. , 2.2],
+                   [3. , 3.3, 2. , 0. , 0. ]]),
+        """
+        raise NotImplementedError("Flattening is not yet implemented.")
+
     def __len__(self) -> int:
         """Returns the length (which is shared across all keys) of these tensors.
 
