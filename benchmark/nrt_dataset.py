@@ -55,7 +55,10 @@ class NRTDataset(BenchmarkableDataset):
     @TimeableMixin.TimeAs
     def __getitem__(self, i):
         i, start, end = self.index[i]
-        dynamic_data = self.dynamic_data[i]
+        with self._time_as("_get_slice_indices"):
+            indices = self.dynamic_data._get_slice_indices(i)
+        with self._time_as("_slice"):
+            dynamic_data = self.dynamic_data._slice(indices)
         static_data = self.static_data[i]
 
         if start is not None or end is not None:
