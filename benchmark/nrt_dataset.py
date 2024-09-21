@@ -36,7 +36,7 @@ class NRTDataset(BenchmarkableDataset):
 
     @TimeableMixin.TimeAs
     def read(self, read_dir: Path):
-        self.dynamic_data = JointNestedRaggedTensorDict.load(read_dir / "dynamics.nrt")
+        self.dynamic_data = JointNestedRaggedTensorDict(tensors_fp=read_dir / "dynamics.nrt")
         with open(read_dir / "static_data.pkl", "rb") as f:
             self.static_data = pickle.load(f)
         self.N = len(self.index)
