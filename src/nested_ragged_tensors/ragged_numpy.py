@@ -841,13 +841,28 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
-            ...     "T": [1, 2],
+            ...     "S": [1, 2],
+            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ... }, schema={"T": int, "id": int, "val": float})
+            >>> dense_dict = J.flatten().to_dense().to_dense()
+            >>> dense_dict['S']
+            array([1, 2])
+            >>> dense_dict['id']
+            array([[1, 2, 3, 3, 4, 1, 2], [3, 3, 2, 2, 0, 0, 0]])
+            >>> dense_dict['val']
+            array([[1. , 0.2, 3.1, 1. , 2.2], [3. , 3.3, 2. , 0. , 0. ]]),
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "S": [1, 2],
+            ...     "ts": [[1,         2,      3],      [4,   5]],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
             ... }, schema={"T": int, "id": int, "val": float})
             >>> dense_dict = J.to_dense()
-            >>> dense_dict['T']
+            >>> dense_dict['S']
             array([1, 2])
+            >>> dense_dict['ts']
+            array([[1, 2, 3], [4, 5, 0]])
             >>> dense_dict['id']
             array([[[1, 2, 3],
                     [3, 4, 0],
@@ -864,17 +879,43 @@ class JointNestedRaggedTensorDict:
                    [[3. , 0. , 0. ],
                     [3.3, 2. , 0. ],
                     [0. , 0. , 0. ]]])
-            >>> dense_dict = J.flatten(dim=-1).to_dense().to_dense()
-            >>> dense_dict['T']
+            >>> dense_dict = J.flatten().to_dense().to_dense()
+            >>> dense_dict['S']
             array([1, 2])
+            >>> dense_dict['ts']
+            array([[1, 1, 1, 2, 2, 3, 3], [4, 5, 5, 5, 0, 0, 0]])
             >>> dense_dict['id']
-            array([[1, 2, 3, 3, 4, 1, 2],
-                   [3, 3, 2, 2, 0, 0, 0]])
+            array([[1, 2, 3, 3, 4, 1, 2], [3, 3, 2, 2, 0, 0, 0]])
             >>> dense_dict['val']
-            array([[1. , 0.2, 3.1, 1. , 2.2],
-                   [3. , 3.3, 2. , 0. , 0. ]]),
+            array([[1. , 0.2, 3.1, 1. , 2.2], [3. , 3.3, 2. , 0. , 0. ]]),
+            >>> J.flatten(dim=0)
+            Traceback (most recent call last):
+                ...
+            ValueError: Only supports dim = -1 or 2 for now; got 0
         """
-        raise NotImplementedError("Flattening is not yet implemented.")
+        if dim < 0:
+            target_dim = self.max_n_dims + dim
+        else:
+            target_dim = dim
+
+        if target_dim != self.max_n_dims - 1:
+            raise ValueError(f"Only supports dim = -1 or {self.max_n_dims - 1} for now; got {dim}")
+
+        out_tensors = {}
+
+        for k, T in self.tensors.items():
+            d, key = k.split("/")
+            dim_int = int(dim[3:])
+            if dim_int < target_dim - 1:
+                out_tensors[k] = T
+                continue
+            elif dim_int == target_dim - 1:
+                raise NotImplementedError("Flattening with competing tensors is not yet supported.")
+            else:
+                new_key = f"dim{dim_int - 1}/{key}"
+                out_tensors[new_key] = T
+
+        return self.__class__(processed_tensors=out_tensors, schema=self.schema)
 
     def __len__(self) -> int:
         """Returns the length (which is shared across all keys) of these tensors.
