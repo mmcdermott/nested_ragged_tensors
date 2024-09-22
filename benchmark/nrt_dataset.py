@@ -65,7 +65,7 @@ class NRTDataset(BenchmarkableDataset):
             return self.dynamic_data[i]
 
         start = np.random.randint(0, L - self.max_seq_len)
-        return self.dynamic_data[i][start : start + self.max_seq_len]
+        return self.dynamic_data[i, start : start + self.max_seq_len]
 
     @TimeableMixin.TimeAs
     def collate(self, batch: list[tuple[dict, JointNestedRaggedTensorDict]]) -> dict:
