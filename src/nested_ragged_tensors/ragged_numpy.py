@@ -543,6 +543,13 @@ class JointNestedRaggedTensorDict:
             >>> as_dense['val']
             array([[0., 0.],
                    [1., 0.]])
+
+        If we drop all values from a tensor, it is omitted from the resulting tensor. This is likely not
+        ideal. TODO(mmd): Fix this behavior.
+            >>> as_dense = J[2][0:1].to_dense()
+            >>> assert as_dense.keys() == {'T', 'dim1/mask'}
+            >>> as_dense['T']
+            array([6])
             >>> J["T"]
             Traceback (most recent call last):
                 ...
@@ -581,6 +588,16 @@ class JointNestedRaggedTensorDict:
             >>> as_dense['val']
             array([[1. , 0.2, 0. ],
                    [3.1, 0. , 0. ]])
+            >>> as_dense = J[0, 1].to_dense()
+            >>> assert as_dense.keys() == {'id', 'val'} # We drop the non-tensorized T key.
+            >>> as_dense['id']
+            array([3, 4])
+            >>> as_dense['val']
+            array([3.1, 0. ])
+            >>> as_dense = J[2, :1].to_dense()
+            >>> as_dense['T']
+            array([6])
+            >>> assert as_dense.keys() == {'T', 'dim1/mask'}
             >>> as_dense = J[1, 1:].to_dense()
             >>> as_dense['T']
             array([5])
@@ -1005,7 +1022,14 @@ class JointNestedRaggedTensorDict:
         """
         if self._tensors is None:
             with safe_open(self._tensors_fp, framework="np") as f:
-                return f.get_slice("dim1/bounds").get_shape()[0]
+                if self.max_n_dims == 1:
+                    k = next(iter(self._tensor_keys))
+                    return f.get_slice(k).get_shape()[0]
+                else:
+                    return f.get_slice("dim1/bounds").get_shape()[0]
+        elif self.max_n_dims == 1:
+            k = next(iter(self._tensor_keys))
+            return len(self.tensors[k])
         else:
             return len(self.tensors["dim1/bounds"])
 
@@ -1214,7 +1238,14 @@ class JointNestedRaggedTensorDict:
                 case slice() as S:
                     with self._tensor_at_key(k) as T:
                         if key == "bounds" and S.start is not None and S.start > 0:
-                            tensors[new_key] = T[S] - T[S.start - 1]
+                            try:
+                                L = T.get_shape()[0]
+                            except Exception:
+                                L = len(T)
+                            if S.start >= L:
+                                tensors[new_key] = np.array([], dtype=T.dtype)
+                            else:
+                                tensors[new_key] = T[S] - T[S.start - 1]
                         else:
                             tensors[new_key] = T[S]
                 case _:
@@ -1338,14 +1369,22 @@ class JointNestedRaggedTensorDict:
             out[f"dim{dim}/bounds"] = slice(st_i, end_i)
 
             with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
+                try:
+                    L = bounds.get_shape()[0]
+                except Exception:
+                    L = len(bounds)
+
                 if st_i != 0:
-                    new_st_i = bounds[st_i - 1]
+                    if st_i <= L:
+                        new_st_i = bounds[st_i - 1]
+                    else:
+                        new_st_i = bounds[-1] + 1
                 else:
                     new_st_i = 0
 
                 if end_i is None:
                     new_end_i = bounds[-1]
-                elif end_i > st_i:
+                elif end_i > st_i and end_i <= L:
                     new_end_i = bounds[end_i - 1]
                 else:
                     new_end_i = new_st_i
