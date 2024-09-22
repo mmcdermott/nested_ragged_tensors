@@ -755,6 +755,7 @@ class JointNestedRaggedTensorDict:
             raise ValueError(f"Only supports dim = 0 for now; got {dim}")
 
         out_tensors = {}
+        out_schema = {}
         for k, T in self.tensors.items():
             dim, key = k.split("/")
             dim_int = int(dim[3:])
@@ -765,8 +766,9 @@ class JointNestedRaggedTensorDict:
 
             new_key = f"dim{dim_int - 1}/{key}"
             out_tensors[new_key] = T
+            out_schema[new_key] = T.dtype
 
-        return self.__class__(processed_tensors=out_tensors, schema=self.schema)
+        return self.__class__(processed_tensors=out_tensors, schema=out_schema)
 
     def unsqueeze(self, dim: int) -> JointNestedRaggedTensorDict:
         """Expands these tensors to have a new, singleton first dimension.
