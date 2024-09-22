@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
+from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 
@@ -190,6 +191,14 @@ class JointNestedRaggedTensorDict:
                 return set(f.keys())
         else:
             return set(self._tensors.keys())
+
+    @contextmanager
+    def _tensor_at_key(self, key: str):
+        if self._tensors is None:
+            with safe_open(self._tensors_fp, framework="np") as f:
+                yield f.get_slice(key)
+        else:
+            yield self._tensors[key]
 
     @classmethod
     def _get_lengths_and_values(
@@ -1183,11 +1192,8 @@ class JointNestedRaggedTensorDict:
 
             match idx:
                 case slice() as S:
-                    if self._tensors is None:
-                        with safe_open(self._tensors_fp, framework="np") as f:
-                            tensors[new_key] = f.get_slice(k)[S]
-                    else:
-                        tensors[new_key] = self._tensors[k][S]
+                    with self._tensor_at_key(k) as T:
+                        tensors[new_key] = T[S]
                 case np.ndarray() as arr if arr.ndim == 1:
                     tensors[new_key] = arr
                 case _:
@@ -1255,11 +1261,8 @@ class JointNestedRaggedTensorDict:
                     else:
                         B_slice = slice(st_i - 1, end_i)
 
-                    if self._tensors is None:
-                        with safe_open(self._tensors_fp, framework="np") as f:
-                            B = f.get_slice(f"dim{dim}/bounds")[B_slice]
-                    else:
-                        B = self.tensors[f"dim{dim}/bounds"][B_slice]
+                    with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
+                        B = bounds[B_slice]
 
                     if st_i == 0:
                         offset = 0
