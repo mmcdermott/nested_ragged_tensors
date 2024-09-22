@@ -1168,72 +1168,6 @@ class JointNestedRaggedTensorDict:
                         ) from e
         return cls(processed_tensors=out_tensors, schema=out_schema)
 
-    @classmethod
-    def load_slice(cls, fp: Path, idx: int | slice | np.ndarray) -> JointNestedRaggedTensorDict:
-        """Loads the specified slice of the tensors saved at the given filepath.
-
-        This method uses ``safetensors`` to fetch only the requested slice from the underlying file in an
-        efficient, optimized manner that significantly preserves the resources required to load the entire
-        file.
-
-        Args:
-            fp: The path from which to load
-            idx: The slice to read.
-
-        Returns
-            * If ``idx`` is an `int` or a `slice` object, this returns a `JointNestedRaggedTensorDict`
-              representing the tensors saved at ``fp`` as though they were sliced according to ``idx`` in the
-              first dimension. With an `int` index, the resulting tensors will have their dimensionality
-              reduced by one, and this cannot be called on a collection that already has some tensors that are
-              of dimensionality 1 in it.
-            * If ``idx`` is a numpy array of integers, this returns a `JointNestedRaggedTensorDict`
-              that consists of tensors saved at ``fp`` sliced at the integer indices in ``idx`` and
-              then re-stacked together. Dimensionality will not be reduced. This behavior is consistent with
-              how the tensors would be sliced under ``idx`` were they dense numpy arrays.
-
-        Examples:
-            >>> import tempfile
-            >>> J = JointNestedRaggedTensorDict({
-            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
-            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
-            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
-            ... })
-            >>> with tempfile.TemporaryDirectory() as dirpath:
-            ...     fp = Path(dirpath) / "tensors.pt"
-            ...     J.save(fp)
-            ...     J2 = JointNestedRaggedTensorDict.load_slice(fp, slice(None, 1))
-            >>> J = J[:1]
-            >>> assert J.keys() == J2.keys(), f"Keys unequal: {J.keys()} != {J2.keys()}"
-            >>> J_dense = J.to_dense()
-            >>> J2_dense = J2.to_dense()
-            >>> for k in J_dense.keys():
-            ...     assert (J_dense[k] == J2_dense[k]).all(), (
-            ...         f"Tensors at {k} unequal! Want {J_dense[k]}, got {J2_dense[k]}"
-            ...     )
-            >>> J = JointNestedRaggedTensorDict({
-            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
-            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
-            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
-            ... })
-            >>> with tempfile.TemporaryDirectory() as dirpath:
-            ...     fp = Path(dirpath) / "tensors.pt"
-            ...     J.save(fp)
-            ...     J2 = JointNestedRaggedTensorDict.load_slice(fp, 1)
-            >>> J = J[1]
-            >>> assert J.keys() == J2.keys(), f"Keys unequal: {J.keys()} != {J2.keys()}"
-            >>> J_dense = J.to_dense()
-            >>> J2_dense = J2.to_dense()
-            >>> for k in J_dense.keys():
-            ...     assert (J_dense[k] == J2_dense[k]).all(), (
-            ...         f"Tensors at {k} unequal! Want {J_dense[k]}, got {J2_dense[k]}"
-            ...     )
-        """
-
-        J = cls(tensors_fp=fp)
-        indices = J._get_slice_indices(idx)
-
-        return J._slice(indices)
-
     def _slice_single(
         self, indices: dict[str, slice | np.ndarray], reduce_dim: bool = False
     ) -> JointNestedRaggedTensorDict:
@@ -1244,15 +1178,8 @@ class JointNestedRaggedTensorDict:
 
         for k, idx in indices.items():
             old_dim, key = k.split("/")
-            old_dim_int = int(old_dim[3:])
 
-            if reduce_dim:
-                if old_dim_int == 1 and key in ("lengths", "bounds"):
-                    # These keys will be dropped as this tensor will become a 1D tensor in truth.
-                    continue
-                new_key = f"dim{old_dim_int - 1}/{key}"
-            else:
-                new_key = k
+            new_key = k
 
             match idx:
                 case slice() as S:
@@ -1268,7 +1195,11 @@ class JointNestedRaggedTensorDict:
 
             schema[new_key] = tensors[new_key].dtype
 
-        return self.__class__(processed_tensors=tensors, schema=schema)
+        out = self.__class__(processed_tensors=tensors, schema=schema)
+        if reduce_dim:
+            return out.squeeze(0)
+        else:
+            return out
 
     def _slice(
         self,
