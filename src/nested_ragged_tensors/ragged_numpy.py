@@ -1355,16 +1355,6 @@ class JointNestedRaggedTensorDict:
 
             out[f"dim{starting_dim}/{key}"] = slice(st_i, end_i)
 
-        if f"dim{starting_dim+1}/bounds" in out:
-            out_B_slice = out[f"dim{starting_dim+1}/bounds"]
-            st_i += out_B_slice.start
-            if end_i is None:
-                end_i = out_B_slice.stop
-            else:
-                end_i += out_B_slice.start
-                if out_B_slice.stop is not None:
-                    end_i = min(end_i, out_B_slice.stop)
-
         for dim in range(max(starting_dim + 1, 1), self.max_n_dims):
             out[f"dim{dim}/bounds"] = slice(st_i, end_i)
 
@@ -1378,7 +1368,7 @@ class JointNestedRaggedTensorDict:
                     if st_i <= L:
                         new_st_i = bounds[st_i - 1]
                     else:
-                        new_st_i = bounds[-1] + 1
+                        new_st_i = bounds[-1]
                 else:
                     new_st_i = 0
 
