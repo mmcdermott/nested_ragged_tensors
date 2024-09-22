@@ -572,13 +572,15 @@ class JointNestedRaggedTensorDict:
             ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]], [[], [8,  9]]],
             ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]], [[], [1., 0]]],
             ... }, schema={"T": int, "id": int, "val": float})
-            >>> as_dense = J[1][1:].to_dense()
+            >>> as_dense = J[0, :2].to_dense()
             >>> as_dense['T']
-            array([5])
+            array([1, 2])
             >>> as_dense['id']
-            array([[3, 2, 2]])
+            array([[1, 2, 3],
+                   [3, 4, 0]])
             >>> as_dense['val']
-            array([[3.3, 2. , 0. ]])
+            array([[1. , 0.2, 0. ],
+                   [3.1, 0. , 0. ]])
             >>> as_dense = J[1, 1:].to_dense()
             >>> as_dense['T']
             array([5])
@@ -586,6 +588,13 @@ class JointNestedRaggedTensorDict:
             array([[3, 2, 2]])
             >>> as_dense['val']
             array([[3.3, 2. , 0. ]])
+            >>> as_dense = J[1:2, 1:].to_dense()
+            >>> as_dense['T']
+            array([[5]])
+            >>> as_dense['id']
+            array([[[3, 2, 2]]])
+            >>> as_dense['val']
+            array([[[3.3, 2. , 0. ]]])
         """
         return self._slice(self._get_slice_indices(idx))
 
@@ -1267,7 +1276,7 @@ class JointNestedRaggedTensorDict:
                             f"{type(idx)} at index {dim} not supported for "
                             f"{self.__class__.__name__} tuple slicing"
                         )
-                    out_indices.update(self._get_slice_indices_internal(idx, dim, out_indices))
+                    out_indices = self._get_slice_indices_internal(idx, dim, out_indices)
                 return (out_indices, squeeze_dims)
             case slice() as S:
                 return self._get_slice_indices_internal(S, 0, {})
@@ -1293,7 +1302,12 @@ class JointNestedRaggedTensorDict:
 
         if f"dim{starting_dim}/bounds" in out:
             st_i += out[f"dim{starting_dim}/bounds"].start
-            end_i = None if end_i is None else end_i + out[f"dim{starting_dim}/bounds"].start
+            if end_i is None:
+                end_i = None
+            else:
+                end_i = end_i + out[f"dim{starting_dim}/bounds"].start
+                if out[f"dim{starting_dim}/bounds"].stop is not None:
+                    end_i = min(end_i, out[f"dim{starting_dim}/bounds"].stop)
 
         for dim in range(max(starting_dim, 1), self.max_n_dims):
             out[f"dim{dim}/bounds"] = slice(st_i, end_i)
