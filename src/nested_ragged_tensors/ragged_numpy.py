@@ -1256,24 +1256,23 @@ class JointNestedRaggedTensorDict:
 
                 for dim in range(1, self.max_n_dims):
                     out[f"dim{dim}/lengths"] = slice(st_i, end_i)
-
-                    if st_i == 0:
-                        B_slice = slice(0, end_i)
-                    else:
-                        B_slice = slice(st_i - 1, end_i)
-
-                    with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
-                        B = bounds[B_slice]
-
-                    if st_i == 0:
-                        offset = 0
-                    else:
-                        offset = B[0]
-
                     out[f"dim{dim}/bounds"] = slice(st_i, end_i)
 
-                    st_i = offset
-                    end_i = B[-1] if len(B) > 0 else offset
+                    with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
+                        if st_i != 0:
+                            new_st_i = bounds[st_i - 1]
+                        else:
+                            new_st_i = 0
+
+                        if end_i is None:
+                            new_end_i = bounds[-1]
+                        elif end_i > st_i:
+                            new_end_i = bounds[end_i - 1]
+                        else:
+                            new_end_i = new_st_i
+
+                    st_i = new_st_i
+                    end_i = new_end_i
 
                     for key in self.keys_at_dim(dim):
                         out[f"dim{dim}/{key}"] = slice(st_i, end_i)
