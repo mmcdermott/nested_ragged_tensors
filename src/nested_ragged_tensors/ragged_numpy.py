@@ -154,20 +154,24 @@ class JointNestedRaggedTensorDict:
         if not isinstance(other, JointNestedRaggedTensorDict):
             return False
 
-        self_tensors = self.tensors
-        other_tensors = other.tensors
-
-        if self_tensors.keys() != other_tensors.keys():
+        if self._tensor_keys != other._tensor_keys:
             return False
 
-        for k in self_tensors.keys():
-            if not np.array_equal(self_tensors[k], other_tensors[k]):
+        for k in self._tensor_keys:
+            if not np.array_equal(self.tensors[k], other.tensors[k]):
                 return False
 
         return True
 
     def __repr__(self) -> str:
-        return f"JointNestedRaggedTensorDict(processed_tensors={self.tensors}, schema={self.schema})"
+        prefix = "JointNestedRaggedTensorDict("
+        schema_arg = f"schema={self.schema}"
+        if self._tensors is not None:
+            return f"{prefix}processed_tensors={self._tensors}, {schema_arg})"
+        elif self._tensors_fp is not None:
+            return f"{prefix}tensors_fp={str(self._tensors_fp)}, {schema_arg})"
+        else:
+            raise ValueError("No tensors found!")
 
     def __str__(self) -> str:
         return self.__repr__()
