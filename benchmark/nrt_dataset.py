@@ -1,5 +1,4 @@
 import pickle
-from functools import cached_property
 from pathlib import Path
 
 import numpy as np
@@ -25,20 +24,17 @@ class NRTDataset(BenchmarkableDataset):
             for i in range(len(S)):
                 static_data[i][k] = S[i]
 
-        return (static_data, JointNestedRaggedTensorDict(data))
+        subject_indices = []
+        for i, ts in enumerate(data["timedelta"]):
+            subject_indices.append((i, 0, len(ts)))
 
-    @cached_property
-    def index(self):
-        if hasattr(self, "task_bounds") and self.task_bounds:
-            return self.task_bounds
-        else:
-            return [(i, None, None) for i in range(len(self.dynamic_data))]
+        return ((static_data, subject_indices), JointNestedRaggedTensorDict(data))
 
     @TimeableMixin.TimeAs
     def read(self, read_dir: Path):
         self.dynamic_data = JointNestedRaggedTensorDict(tensors_fp=read_dir / "dynamics.nrt")
         with open(read_dir / "static_data.pkl", "rb") as f:
-            self.static_data = pickle.load(f)
+            self.static_data, self.index = pickle.load(f)
         self.N = len(self.index)
 
     @classmethod
@@ -55,19 +51,21 @@ class NRTDataset(BenchmarkableDataset):
     @TimeableMixin.TimeAs
     def __getitem__(self, i):
         i, start, end = self.index[i]
-        dynamic_data = self.dynamic_data[i]
         static_data = self.static_data[i]
 
-        if start is not None or end is not None:
-            dynamic_data = dynamic_data[start:end]
+        return (static_data, self._load_dynamic_data(i, start, end))
 
-        if self.max_seq_len is not None:
-            L = len(dynamic_data)
-            if L > self.max_seq_len:
-                start = np.random.randint(0, L - self.max_seq_len)
-                dynamic_data = dynamic_data[start : start + self.max_seq_len]
+    @TimeableMixin.TimeAs
+    def _load_dynamic_data(self, i, start=None, end=None) -> JointNestedRaggedTensorDict:
+        if self.max_seq_len is None:
+            return self.dynamic_data[i]
 
-        return (static_data, dynamic_data)
+        L = end - start
+        if L <= self.max_seq_len:
+            return self.dynamic_data[i]
+
+        start = np.random.randint(0, L - self.max_seq_len)
+        return self.dynamic_data[i][start : start + self.max_seq_len]
 
     @TimeableMixin.TimeAs
     def collate(self, batch: list[tuple[dict, JointNestedRaggedTensorDict]]) -> dict:
