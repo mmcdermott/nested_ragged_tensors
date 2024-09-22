@@ -721,8 +721,12 @@ class JointNestedRaggedTensorDict:
             )
 
             B = self.tensors[f"dim{dim}/bounds"]
-            L = np.concatenate([[B[0]], np.diff(B, axis=0)], axis=0)
-            max_ln = max(L)
+            if len(B) > 0:
+                L = np.concatenate([[B[0]], np.diff(B, axis=0)], axis=0)
+                max_ln = max(L)
+            else:
+                L = []
+                max_ln = 0
 
             shape.append(max_ln)
 
@@ -1300,9 +1304,25 @@ class JointNestedRaggedTensorDict:
 
         out = {**curr_indices}
 
-        if starting_dim == 0:
-            for key in self.keys_at_dim(0):
-                out[f"dim0/{key}"] = slice(st_i, end_i)
+        adjusted = False
+        for key in self.keys_at_dim(starting_dim):
+            if f"dim{starting_dim}/{key}" in out and not adjusted:
+                S = out[f"dim{starting_dim}/{key}"]
+                curr_st = S.start
+                curr_end = S.stop
+
+                if curr_st is not None:
+                    st_i += curr_st
+                    if end_i is not None:
+                        end_i += curr_st
+                if curr_end is not None:
+                    if end_i is None:
+                        end_i = curr_end
+                    else:
+                        end_i = min(end_i, curr_end)
+                adjusted = True
+
+            out[f"dim{starting_dim}/{key}"] = slice(st_i, end_i)
 
         if f"dim{starting_dim+1}/bounds" in out:
             out_B_slice = out[f"dim{starting_dim+1}/bounds"]
