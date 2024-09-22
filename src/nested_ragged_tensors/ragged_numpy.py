@@ -701,20 +701,21 @@ class JointNestedRaggedTensorDict:
 
             shape.append(max_ln)
 
+            slice_indices = [idx + (pad_slice(ln, max_ln),) for idx, ln in zip(indices, L)]
+
             if self.keys_at_dim(dim):
                 out[f"dim{dim}/mask"] = np.zeros(shape=tuple(shape), dtype=bool)
-                for idx, ln in zip(indices, L):
-                    out[f"dim{dim}/mask"][idx + (pad_slice(ln, max_ln),)] = True
+                for idx in slice_indices:
+                    out[f"dim{dim}/mask"][idx] = True
 
-            bounds = self.tensors[f"dim{dim}/bounds"]
             for key in self.keys_at_dim(dim):
                 if len(self.tensors[f"dim{dim}/{key}"]) == 0:
                     continue
 
                 out[key] = np.zeros(shape=tuple(shape), dtype=self.tensors[f"dim{dim}/{key}"].dtype)
                 st = 0
-                for idx, ln, b in zip(indices, L, bounds):
-                    out[key][idx + (pad_slice(ln, max_ln),)] = self.tensors[f"dim{dim}/{key}"][st:b]
+                for idx, b in zip(slice_indices, B):
+                    out[key][idx] = self.tensors[f"dim{dim}/{key}"][st:b]
                     st = b
 
         return out
