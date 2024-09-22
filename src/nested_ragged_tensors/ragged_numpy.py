@@ -174,8 +174,14 @@ class JointNestedRaggedTensorDict:
 
     @property
     def schema(self) -> dict[str, np.dtype]:
-        if self._schema is None:
-            self._schema = {k: v.dtype for k, v in self.tensors.items() if not self._is_meta_key(k)}
+        if not self._schema:
+            if self._schema is None:
+                self._schema = {}
+
+            for k in self._tensor_keys:
+                dim, key = k.split("/")
+                with self._tensor_at_key(k) as T:
+                    self._schema[key] = T[:1].dtype
         return self._schema
 
     @property
@@ -332,9 +338,9 @@ class JointNestedRaggedTensorDict:
 
             if not isinstance(T[0], (list, tuple, np.ndarray)):
                 dim_str = "dim0"
-                if k not in self.schema:
-                    self.schema[k] = self._infer_dtype(T)
-                self._tensors[f"{dim_str}/{k}"] = np.array(T, dtype=self.schema[k])
+                if k not in self._schema:
+                    self._schema[k] = self._infer_dtype(T)
+                self._tensors[f"{dim_str}/{k}"] = np.array(T, dtype=self._schema[k])
                 continue
 
             try:
@@ -344,8 +350,8 @@ class JointNestedRaggedTensorDict:
                 raise ValueError(f"Failed to parse {k} as a nested list of numbers!") from e
 
             flat_vals = list(itertools.chain.from_iterable(vals))
-            if k not in self.schema:
-                self.schema[k] = self._infer_dtype(flat_vals)
+            if k not in self._schema:
+                self._schema[k] = self._infer_dtype(flat_vals)
 
             dim_str = "dim0"
             for i, L in enumerate(lengths):
@@ -361,7 +367,7 @@ class JointNestedRaggedTensorDict:
                     self._tensors[lengths_key] = L
                     self._tensors[f"{dim_str}/bounds"] = np.cumsum(L, axis=0)
 
-            self._tensors[f"{dim_str}/{k}"] = np.array(flat_vals, dtype=self.schema[k])
+            self._tensors[f"{dim_str}/{k}"] = np.array(flat_vals, dtype=self._schema[k])
 
     def save(self, fp: Path):
         """Saves the tensor to a file. See `JointNestedRaggedTensorDict.load` for examples.
