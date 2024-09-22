@@ -1193,9 +1193,10 @@ class JointNestedRaggedTensorDict:
             match idx:
                 case slice() as S:
                     with self._tensor_at_key(k) as T:
-                        tensors[new_key] = T[S]
-                case np.ndarray() as arr if arr.ndim == 1:
-                    tensors[new_key] = arr
+                        if key == "bounds" and S.start is not None and S.start > 0:
+                            tensors[new_key] = T[S] - T[S.start - 1]
+                        else:
+                            tensors[new_key] = T[S]
                 case _:
                     raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__} slicing")
 
@@ -1268,15 +1269,14 @@ class JointNestedRaggedTensorDict:
                         offset = 0
                     else:
                         offset = B[0]
-                        B = B[1:] - offset
+
+                    out[f"dim{dim}/bounds"] = slice(st_i, end_i)
 
                     st_i = offset
-                    end_i = (B[-1] + offset) if len(B) > 0 else offset
+                    end_i = B[-1] if len(B) > 0 else offset
 
                     for key in self.keys_at_dim(dim):
                         out[f"dim{dim}/{key}"] = slice(st_i, end_i)
-
-                    out[f"dim{dim}/bounds"] = B
 
                 return out
             case _:
