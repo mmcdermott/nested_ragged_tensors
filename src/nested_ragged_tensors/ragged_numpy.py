@@ -567,6 +567,25 @@ class JointNestedRaggedTensorDict:
                    [[0. , 0. , 0. ],
                     [1. , 0. , 0. ],
                     [0. , 0. , 0. ]]])
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T":   [[1,           2,        3       ], [4,   5          ], [6,  7]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]], [[], [8,  9]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]], [[], [1., 0]]],
+            ... }, schema={"T": int, "id": int, "val": float})
+            >>> as_dense = J[1][1:].to_dense()
+            >>> as_dense['T']
+            array([5])
+            >>> as_dense['id']
+            array([[3, 2, 2]])
+            >>> as_dense['val']
+            array([[3.3, 2. , 0. ]])
+            >>> as_dense = J[1, 1:].to_dense()
+            >>> as_dense['T']
+            array([5])
+            >>> as_dense['id']
+            array([[3, 2, 2]])
+            >>> as_dense['val']
+            array([[3.3, 2. , 0. ]])
         """
         return self._slice(self._get_slice_indices(idx))
 
@@ -1167,7 +1186,9 @@ class JointNestedRaggedTensorDict:
         return cls(processed_tensors=out_tensors, schema=out_schema)
 
     def _slice_single(
-        self, indices: dict[str, slice | np.ndarray], reduce_dim: bool = False
+        self,
+        indices: dict[str, slice | np.ndarray],
+        squeeze_dims: list[int] | None = None,
     ) -> JointNestedRaggedTensorDict:
         """Slices this collection of tensors by the given indices."""
 
@@ -1192,10 +1213,12 @@ class JointNestedRaggedTensorDict:
             schema[new_key] = tensors[new_key].dtype
 
         out = self.__class__(processed_tensors=tensors, schema=schema)
-        if reduce_dim:
-            return out.squeeze(0)
-        else:
-            return out
+        if squeeze_dims is not None:
+            i = 0
+            for dim in sorted(squeeze_dims):
+                out = out.squeeze(dim - i)
+                i += 1
+        return out
 
     def _slice(
         self,
@@ -1216,14 +1239,14 @@ class JointNestedRaggedTensorDict:
             case tuple() as T:
                 return self._slice_single(*T)
             case dict():
-                return self._slice_single(indices, reduce_dim=False)
+                return self._slice_single(indices)
             case list():
-                return self.__class__.vstack([self._slice_single(idx, reduce_dim=True) for idx in indices])
+                return self.__class__.vstack([self._slice_single(idx, squeeze_dims=[0]) for idx in indices])
             case _:
                 raise TypeError(f"{type(indices)} not supported for {self.__class__.__name__} slicing")
 
     def _get_slice_indices(
-        self, idx: int | slice | np.ndarray
+        self, idx: int | slice | tuple | np.ndarray
     ) -> tuple[dict[str, slice], bool] | list[dict[str, slice]] | dict[str, slice]:
         """Returns the start and end indices for each dimension of self after slicing by idx."""
 
@@ -1231,40 +1254,67 @@ class JointNestedRaggedTensorDict:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
                 return [self._get_slice_indices(slice(i, i + 1)) for i in arr]
             case int() as i:
-                return (self._get_slice_indices(slice(i, i + 1)), True)
+                return (self._get_slice_indices(slice(i, i + 1)), [0])
+            case tuple() as T:
+                squeeze_dims = []
+                out_indices = {}
+                for dim, idx in enumerate(T):
+                    if isinstance(idx, int):
+                        idx = slice(idx, idx + 1)
+                        squeeze_dims.append(dim)
+                    if not isinstance(idx, slice):
+                        raise TypeError(
+                            f"{type(idx)} at index {dim} not supported for "
+                            f"{self.__class__.__name__} tuple slicing"
+                        )
+                    out_indices.update(self._get_slice_indices_internal(idx, dim, out_indices))
+                return (out_indices, squeeze_dims)
             case slice() as S:
-                st_i = 0 if S.start is None else S.start
-                end_i = S.stop
-
-                if S.step not in (None, 1):
-                    raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
-
-                out = {}
-                for key in self.keys_at_dim(0):
-                    out[f"dim0/{key}"] = slice(st_i, end_i)
-
-                for dim in range(1, self.max_n_dims):
-                    out[f"dim{dim}/bounds"] = slice(st_i, end_i)
-
-                    with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
-                        if st_i != 0:
-                            new_st_i = bounds[st_i - 1]
-                        else:
-                            new_st_i = 0
-
-                        if end_i is None:
-                            new_end_i = bounds[-1]
-                        elif end_i > st_i:
-                            new_end_i = bounds[end_i - 1]
-                        else:
-                            new_end_i = new_st_i
-
-                    st_i = new_st_i
-                    end_i = new_end_i
-
-                    for key in self.keys_at_dim(dim):
-                        out[f"dim{dim}/{key}"] = slice(st_i, end_i)
-
-                return out
+                return self._get_slice_indices_internal(S, 0, {})
             case _:
                 raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__} slicing")
+
+    def _get_slice_indices_internal(
+        self, idx: slice, starting_dim: int, curr_indices: dict[str, slice]
+    ) -> dict[str, slice]:
+        """Returns the start and end indices for each dimension of self after slicing by idx."""
+
+        st_i = 0 if idx.start is None else idx.start
+        end_i = idx.stop
+
+        if idx.step not in (None, 1):
+            raise ValueError("Only slices with step size of None or 1 are supported; got {idx.step}")
+
+        out = {**curr_indices}
+
+        if starting_dim == 0:
+            for key in self.keys_at_dim(0):
+                out[f"dim0/{key}"] = slice(st_i, end_i)
+
+        if f"dim{starting_dim}/bounds" in out:
+            st_i += out[f"dim{starting_dim}/bounds"].start
+            end_i = None if end_i is None else end_i + out[f"dim{starting_dim}/bounds"].start
+
+        for dim in range(max(starting_dim, 1), self.max_n_dims):
+            out[f"dim{dim}/bounds"] = slice(st_i, end_i)
+
+            with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
+                if st_i != 0:
+                    new_st_i = bounds[st_i - 1]
+                else:
+                    new_st_i = 0
+
+                if end_i is None:
+                    new_end_i = bounds[-1]
+                elif end_i > st_i:
+                    new_end_i = bounds[end_i - 1]
+                else:
+                    new_end_i = new_st_i
+
+            st_i = new_st_i
+            end_i = new_end_i
+
+            for key in self.keys_at_dim(dim):
+                out[f"dim{dim}/{key}"] = slice(st_i, end_i)
+
+        return out
