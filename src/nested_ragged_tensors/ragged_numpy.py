@@ -959,6 +959,16 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             ValueError: Only supports dim = -1 or 2 for now; got 0
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "S": [1, 2],
+            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ... })
+            >>> dense_dict = J[0].flatten(dim=-1).to_dense()
+            >>> dense_dict['val']
+            array([1. , 0.2, 0. , 3.1, 0. , 1. , 2.2], dtype=float32)
+            >>> dense_dict['id']
+            array([1, 2, 3, 3, 4, 1, 2], dtype=uint8)
         """
         if dim < 0:
             target_dim = self.max_n_dims + dim
@@ -976,7 +986,10 @@ class JointNestedRaggedTensorDict:
             for k in self.keys_at_dim(d):
                 out_tensors[f"dim{d}/{k}"] = self.tensors[f"dim{d}/{k}"]
 
-        prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
+        if target_dim - 1 == 0:
+            prev_bounds = np.cumsum([1 for _ in range(len(self))])
+        else:
+            prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
         for d in range(target_dim, self.max_n_dims):
             curr_bounds = self.tensors[f"dim{d}/bounds"]
             st = np.concatenate([[0], curr_bounds[prev_bounds[:-1] - 1]])

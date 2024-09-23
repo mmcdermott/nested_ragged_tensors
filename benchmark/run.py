@@ -86,7 +86,7 @@ def summarize_output(out: dict) -> list[dict]:
     return summary
 
 
-@pytest.mark.parametrize("batch_size", [256])
+@pytest.mark.parametrize("batch_size", [32])
 @pytest.mark.parametrize("max_seq_len", [512])
 @pytest.mark.parametrize("num_epochs", [5])
 def test_profile(tmp_path: Path, batch_size: int, max_seq_len: int, num_epochs: int):
