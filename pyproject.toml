@@ -21,7 +21,7 @@ dependencies = ["safetensors", "numpy"]
 [tool.setuptools_scm]
 
 [project.optional-dependencies]
-dev = ["pre-commit"]
+dev = ["pre-commit<4"]
 tests = ["pytest", "pytest-cov"]
 benchmarks = ["ml-mixins", "torch", "rootutils", "memray"]
 
