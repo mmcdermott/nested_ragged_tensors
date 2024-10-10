@@ -21,6 +21,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
 
+      - name: Install packages
+        run: |
+          pip install -e .[dev]
+
       - name: Find modified files
         id: file_changes
         uses: trilom/file-changes-action@v1.2.4
