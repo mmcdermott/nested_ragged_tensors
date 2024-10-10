@@ -32,7 +32,7 @@ class NRTDataset(BenchmarkableDataset):
 
     @TimeableMixin.TimeAs
     def read(self, read_dir: Path):
-        self.dynamic_data = JointNestedRaggedTensorDict.load(read_dir / "dynamics.nrt")
+        self.dynamic_data = JointNestedRaggedTensorDict(tensors_fp=read_dir / "dynamics.nrt")
         with open(read_dir / "static_data.pkl", "rb") as f:
             self.static_data, self.index = pickle.load(f)
         self.N = len(self.index)
@@ -65,7 +65,7 @@ class NRTDataset(BenchmarkableDataset):
             return self.dynamic_data[i]
 
         start = np.random.randint(0, L - self.max_seq_len)
-        return self.dynamic_data[i][start : start + self.max_seq_len]
+        return self.dynamic_data[i, start : start + self.max_seq_len]
 
     @TimeableMixin.TimeAs
     def collate(self, batch: list[tuple[dict, JointNestedRaggedTensorDict]]) -> dict:

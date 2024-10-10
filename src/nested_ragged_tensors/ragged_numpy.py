@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import itertools
-from collections import defaultdict
 from collections.abc import Sequence
+from contextlib import contextmanager
+from functools import cached_property
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,9 @@ NP_INT_TYPES = (np.int8, np.int16, np.int32, np.int64)
 NP_UINT_TYPES = (np.uint8, np.uint16, np.uint32, np.uint64)
 
 NUM_T = int | float
-NESTED_NUM_LIST = list["NESTED_NUM_LIST"] | NUM_T
+NUM_LIST_T = list[NUM_T]
+NESTED_NUM_LIST_T = NUM_LIST_T
+NESTED_NUM_LIST_T = list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T
 
 
 def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
@@ -56,62 +59,157 @@ def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
 class JointNestedRaggedTensorDict:
     """Stores tensors internally in the following dictionary structure:
     {
-        "dim0/vals": {vals_tensor} # A true 1D tensor in raw tensor form. No associated lengths/bounds.
-        "dim1/lengths": 1D_lengths, # lengths at the 1st dimensionality level
+        "dim0/vals": {vals_tensor} # A true 1D tensor in raw tensor form. No associated bounds.
         "dim1/bounds": 1D_bounds,
-        "dim1/{vals_key}": {vals_tensor}, # A variety of 2D ragged values tensors governed by the 1D lengths.
-        "dim2/lengths": 2D_lengths, # lengths at the 2nd dimensionality level
+        "dim1/{vals_key}": {vals_tensor}, # A variety of 2D ragged values tensors governed by the 1D bounds.
         ...
     }
     """
 
     def __init__(
         self,
-        tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST],
+        raw_tensors: dict[str, NESTED_NUM_LIST_T] | None = None,
+        processed_tensors: dict[str, np.ndarray] | None = None,
+        tensors_fp: Path | None = None,
         schema: dict[str, np.dtype] | None = None,
-        pre_raggedified: bool = False,
     ):
         """Initializes JointNestedRaggedTensorDict with the given tensors.
 
         Args:
-            tensors: The tensors to be stored.
+            raw_tensors: A raw dictionary from strings to lists of lists to store in this manner.
+            processed_tensors: The tensors to be stored, in pre-processed format.
+            tensors_fp: The filepath from which to load the pre-processed tensors in seafetensors formatt.
             schema: The schema for the tensors, if known.
-            pre_raggedified: If `True`, the tensors are assumed to be pre-raggedified and are stored as-is. If
-                `False`, the tensors are assumed to be raw data and are raggedified.
 
         Examples:
+            >>> import tempfile
             >>> J = JointNestedRaggedTensorDict({
             ...     "A": [[1, 2, 3], [4, 5]],
             ...     "B": [1, 2],
             ... })
             >>> print(J) # doctest: +NORMALIZE_WHITESPACE
-            JointNestedRaggedTensorDict({'dim1/lengths': array([3, 2]),
-                                         'dim1/bounds': array([3, 5]),
+            JointNestedRaggedTensorDict(processed_tensors={'dim1/bounds': array([3, 5]),
                                          'dim1/A': array([1, 2, 3, 4, 5], dtype=uint8),
                                          'dim0/B': array([1, 2], dtype=uint8)},
-                                        schema={'A': <class 'numpy.uint8'>, 'B': <class 'numpy.uint8'>},
-                                        pre_raggedified=True)
-            >>> J = JointNestedRaggedTensorDict({"S": []})
+                                        schema={'A': <class 'numpy.uint8'>, 'B': <class 'numpy.uint8'>})
+            >>> J2 = JointNestedRaggedTensorDict(processed_tensors=J.tensors, schema=J.schema)
+            >>> assert J == J2
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     J.save(fp)
+            ...     J3 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...     assert J == J3
+            >>> JointNestedRaggedTensorDict({"S": []})
             Traceback (most recent call last):
                 ...
             ValueError: Empty list found for key S! Nested Ragged Tensors does not support empty tensors.
+            >>> JointNestedRaggedTensorDict(
+            ...     tensors_fp="foo", raw_tensors={"a": [1, 2, 3]}
+            ... ) # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+                ...
+            ValueError: Exactly one of `raw_tensors`, `processed_tensors`, `tensors_fp` must be non-null!
+                        Got raw_tensors={'a': [1, 2, 3]} processed_tensors=None tensors_fp=foo
+            >>> JointNestedRaggedTensorDict() # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+                ...
+            ValueError: Exactly one of `raw_tensors`, `processed_tensors`, `tensors_fp` must be non-null!
+                        Got raw_tensors=None processed_tensors=None tensors_fp=None
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     JointNestedRaggedTensorDict(tensors_fp=fp)
+            Traceback (most recent call last):
+                ...
+            FileNotFoundError: Tensors filepath must exist, got ...
         """
+        args = [
+            ("raw_tensors", raw_tensors),
+            ("processed_tensors", processed_tensors),
+            ("tensors_fp", tensors_fp),
+        ]
+        if len([a for a, v in args if v is not None]) != 1:
+            args_str = " ".join(f"{n}={v}" for n, v in args)
+            raise ValueError(
+                "Exactly one of `raw_tensors`, `processed_tensors`, `tensors_fp` must be non-null! Got "
+                f"{args_str}"
+            )
 
-        self.schema = schema if schema is not None else {}
-        if pre_raggedified:
-            self.tensors = tensors
-        else:
-            self._initialize_tensors(tensors)
+        self._schema = schema if schema is not None else {}
+        if raw_tensors is not None:
+            self._initialize_tensors(raw_tensors)
+        elif processed_tensors is not None:
+            self._tensors = processed_tensors
+        elif tensors_fp is not None:
+            if not tensors_fp.is_file():
+                raise FileNotFoundError(f"Tensors filepath must exist, got {tensors_fp}")
+            self._tensors = None
+            self._tensors_fp = tensors_fp
+
+    def __eq__(self, other: object) -> bool:
+        """Checks if this JointNestedRaggedTensorDict is equal to another object."""
+
+        if not isinstance(other, JointNestedRaggedTensorDict):
+            return False
+
+        if self._tensor_keys != other._tensor_keys:
+            return False
+
+        for k in self._tensor_keys:
+            if not np.array_equal(self.tensors[k], other.tensors[k]):
+                return False
+
+        return True
 
     def __repr__(self) -> str:
-        return f"JointNestedRaggedTensorDict({self.tensors}, schema={self.schema}, pre_raggedified=True)"
+        prefix = "JointNestedRaggedTensorDict("
+        schema_arg = f"schema={self.schema}"
+        if self._tensors is not None:
+            return f"{prefix}processed_tensors={self._tensors}, {schema_arg})"
+        elif self._tensors_fp is not None:
+            return f"{prefix}tensors_fp={str(self._tensors_fp)}, {schema_arg})"
+        else:
+            raise ValueError("No tensors found!")
 
     def __str__(self) -> str:
         return self.__repr__()
 
+    @property
+    def schema(self) -> dict[str, np.dtype]:
+        if not self._schema:
+            if self._schema is None:
+                self._schema = {}
+
+            for k in self._tensor_keys:
+                dim, key = k.split("/")
+                with self._tensor_at_key(k) as T:
+                    self._schema[key] = T[:1].dtype
+        return self._schema
+
+    @property
+    def tensors(self) -> dict[str, np.ndarray]:
+        if self._tensors is None:
+            self._tensors = load_file(self._tensors_fp)
+        return self._tensors
+
+    @cached_property
+    def _tensor_keys(self) -> set[str]:
+        if self._tensors is None:
+            with safe_open(self._tensors_fp, framework="np") as f:
+                return set(f.keys())
+        else:
+            return set(self._tensors.keys())
+
+    @contextmanager
+    def _tensor_at_key(self, key: str):
+        if self._tensors is None:
+            with safe_open(self._tensors_fp, framework="np") as f:
+                yield f.get_slice(key)
+        else:
+            yield self._tensors[key]
+
     @classmethod
     def _get_lengths_and_values(
-        cls, T: NESTED_NUM_LIST, curr_lengths: list[list[int]] = None
+        cls, T: NESTED_NUM_LIST_T, curr_lengths: list[list[int]] = None
     ) -> tuple[list[list[int]], list]:
         """Checks of T is a nested list of lists of a viable shape and returns the nested lengths and values.
 
@@ -230,9 +328,9 @@ class JointNestedRaggedTensorDict:
                 return t
         raise ValueError(f"No valid type available for {mn} - {mx}!")
 
-    def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST] | NESTED_NUM_LIST]):
+    def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T]):
         """Initializes the tensors from lists of raw data entries."""
-        self.tensors = {}
+        self._tensors = {}
         for k, T in tensors.items():
             if len(T) == 0:
                 raise ValueError(
@@ -241,9 +339,9 @@ class JointNestedRaggedTensorDict:
 
             if not isinstance(T[0], (list, tuple, np.ndarray)):
                 dim_str = "dim0"
-                if k not in self.schema:
-                    self.schema[k] = self._infer_dtype(T)
-                self.tensors[f"{dim_str}/{k}"] = np.array(T, dtype=self.schema[k])
+                if k not in self._schema:
+                    self._schema[k] = self._infer_dtype(T)
+                self._tensors[f"{dim_str}/{k}"] = np.array(T, dtype=self._schema[k])
                 continue
 
             try:
@@ -253,45 +351,28 @@ class JointNestedRaggedTensorDict:
                 raise ValueError(f"Failed to parse {k} as a nested list of numbers!") from e
 
             flat_vals = list(itertools.chain.from_iterable(vals))
-            if k not in self.schema:
-                self.schema[k] = self._infer_dtype(flat_vals)
+            if k not in self._schema:
+                self._schema[k] = self._infer_dtype(flat_vals)
 
             dim_str = "dim0"
             for i, L in enumerate(lengths):
                 dim_str = f"dim{i+1}"
 
-                lengths_key = f"{dim_str}/lengths"
-                if lengths_key in self.tensors:
-                    if not np.array_equal(self.tensors[lengths_key], L):
-                        raise ValueError(f"Inconsistent lengths tensors! {self.tensors[lengths_key]} vs. {L}")
+                bounds_key = f"{dim_str}/bounds"
+                B = np.cumsum(L, axis=0)
+                if bounds_key in self._tensors:
+                    if not np.array_equal(self._tensors[bounds_key], B):
+                        raise ValueError(f"Inconsistent bounds tensors! {self._tensors[bounds_key]} vs. {B}")
                 else:
-                    self.tensors[lengths_key] = L
-                    self.tensors[f"{dim_str}/bounds"] = np.cumsum(L, axis=0)
+                    self._tensors[bounds_key] = B
 
-            self.tensors[f"{dim_str}/{k}"] = np.array(flat_vals, dtype=self.schema[k])
+            self._tensors[f"{dim_str}/{k}"] = np.array(flat_vals, dtype=self._schema[k])
 
     def save(self, fp: Path):
         """Saves the tensor to a file. See `JointNestedRaggedTensorDict.load` for examples.
 
         Args:
             fp: The path to which the tensors will be saved.
-        """
-        save_file(self._tensors_with_flat_values, fp)
-
-    @property
-    def _tensors_with_flat_values(self) -> dict[str, np.ndarray]:
-        """Returns the tensors with flat values."""
-        return {k: v if isinstance(v, np.ndarray) else np.concatenate(v, 0) for k, v in self.tensors.items()}
-
-    @classmethod
-    def load(cls, fp: Path) -> JointNestedRaggedTensorDict:
-        """Loads the tensors saved at the given filepath. Does not validate tensor structure.
-
-        Note ``load_slice`` for a more efficient alternative if you only want to access part of the tensor
-        dictionary.
-
-        Args:
-            The path from which to load
 
         Examples:
             >>> import tempfile
@@ -301,27 +382,14 @@ class JointNestedRaggedTensorDict:
             ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ... })
             >>> with tempfile.TemporaryDirectory() as dirpath:
-            ...     fp = Path(dirpath) / "tensors.pt"
+            ...     fp = Path(dirpath) / "tensors.nrt"
             ...     J.save(fp)
-            ...     J2 = JointNestedRaggedTensorDict.load(fp)
-            >>> assert J.keys() == J2.keys()
-            >>> for k, v in J.tensors.items():
-            ...     if k.endswith("/lengths") or k.endswith("/bounds"):
-            ...         assert (J.tensors[k] == J2.tensors[k]).all(), f"Tensors at {k} unequal!"
-            ...     else:
-            ...         assert len(J.tensors[k]) == len(J2.tensors[k]), f"Tensors at {k} unequal!"
-            ...         for i, (v1, v2) in enumerate(zip(J.tensors[k], J2.tensors[k])):
-            ...             assert (v1 == v2).all(), f"Tensors at {k}[{i}] unequal!"
+            ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...     assert J == J2
         """
-        flat_vals_tensors = load_file(fp)
-        tensors = {}
-        schema = {}
-        for k, v in flat_vals_tensors.items():
-            tensors[k] = v
-            if not cls._is_meta_key(k):
-                schema[k] = v.dtype
-
-        return cls(tensors, schema=schema, pre_raggedified=True)
+        if self._tensors is None:
+            raise ValueError(f"Already saved to {self._tensors_fp}!")
+        save_file(self.tensors, fp)
 
     @property
     def max_n_dims(self) -> int:
@@ -336,7 +404,7 @@ class JointNestedRaggedTensorDict:
             >>> J.max_n_dims
             3
         """
-        return max(int(k.split("/")[0][3:]) for k in self.tensors.keys()) + 1
+        return max(int(k.split("/")[0][3:]) for k in self._tensor_keys) + 1
 
     @property
     def min_n_dims(self) -> int:
@@ -351,7 +419,7 @@ class JointNestedRaggedTensorDict:
             >>> J.min_n_dims
             2
         """
-        return min(int(k.split("/")[0][3:]) for k in self.tensors.keys()) + 1
+        return min(int(k.split("/")[0][3:]) for k in self._tensor_keys) + 1
 
     def keys(self) -> set[str]:
         """Returns the set of all keys for the stored tensors.
@@ -364,7 +432,7 @@ class JointNestedRaggedTensorDict:
             ... })
             >>> assert J.keys() == {'id', 'T', 'val'}
         """
-        return {k.split("/")[1] for k in self.tensors.keys() if not self._is_meta_key(k)}
+        return {k.split("/")[1] for k in self._tensor_keys if not self._is_meta_key(k)}
 
     @classmethod
     def _is_meta_key(cls, k: str) -> bool:
@@ -373,14 +441,12 @@ class JointNestedRaggedTensorDict:
         Examples:
             >>> JointNestedRaggedTensorDict._is_meta_key("dim1/T")
             False
-            >>> JointNestedRaggedTensorDict._is_meta_key("dim1/lengths")
-            True
             >>> JointNestedRaggedTensorDict._is_meta_key("dim1/bounds")
             True
             >>> JointNestedRaggedTensorDict._is_meta_key("dim1/mask")
             True
         """
-        return k.endswith("/lengths") or k.endswith("/bounds") or k.endswith("/mask")
+        return k.endswith("/bounds") or k.endswith("/mask")
 
     @classmethod
     def _get_dim_from_key_str(self, full_key_str: str) -> int:
@@ -409,7 +475,7 @@ class JointNestedRaggedTensorDict:
             >>> J._get_dim("id")
             2
         """
-        for k in self.tensors.keys():
+        for k in self._tensor_keys:
             if k.endswith(f"/{key}"):
                 return self._get_dim_from_key_str(k)
 
@@ -477,10 +543,17 @@ class JointNestedRaggedTensorDict:
             >>> as_dense['val']
             array([[0., 0.],
                    [1., 0.]])
+
+        If we drop all values from a tensor, it is omitted from the resulting tensor. This is likely not
+        ideal. TODO(mmd): Fix this behavior.
+            >>> as_dense = J[2][0:1].to_dense()
+            >>> assert as_dense.keys() == {'T', 'dim1/mask'}
+            >>> as_dense['T']
+            array([6])
             >>> J["T"]
             Traceback (most recent call last):
                 ...
-            TypeError: <class 'str'> not supported for JointNestedRaggedTensorDict.__getitem__
+            TypeError: <class 'str'> not supported for JointNestedRaggedTensorDict slicing
             >>> as_dense = J[np.array([0, 2])].to_dense()
             >>> as_dense['T']
             array([[1, 2, 3],
@@ -501,71 +574,43 @@ class JointNestedRaggedTensorDict:
                    [[0. , 0. , 0. ],
                     [1. , 0. , 0. ],
                     [0. , 0. , 0. ]]])
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T":   [[1,           2,        3       ], [4,   5          ], [6,  7]],
+            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]], [[], [8,  9]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]], [[], [1., 0]]],
+            ... }, schema={"T": int, "id": int, "val": float})
+            >>> as_dense = J[0, :2].to_dense()
+            >>> as_dense['T']
+            array([1, 2])
+            >>> as_dense['id']
+            array([[1, 2, 3],
+                   [3, 4, 0]])
+            >>> as_dense['val']
+            array([[1. , 0.2, 0. ],
+                   [3.1, 0. , 0. ]])
+            >>> as_dense = J[0, 1].to_dense()
+            >>> assert as_dense.keys() == {'id', 'val'} # We drop the non-tensorized T key.
+            >>> as_dense['id']
+            array([3, 4])
+            >>> as_dense['val']
+            array([3.1, 0. ])
+            >>> as_dense = J[2, :1].to_dense()
+            >>> as_dense['T']
+            array([6])
+            >>> assert as_dense.keys() == {'T', 'dim1/mask'}
+            >>> as_dense = J[1, 1:].to_dense()
+            >>> as_dense['T']
+            array([5])
+            >>> as_dense['id']
+            array([[3, 2, 2]])
+            >>> as_dense['val']
+            array([[3.3, 2. , 0. ]])
+            >>> as_dense = J[1:2, 1:].to_dense()
+            Traceback (most recent call last):
+                ...
+            ValueError: Multi-level non-int slicing is not supported.
         """
-        match idx:
-            case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
-                return self.__class__.vstack([self[int(i)] for i in arr])
-            case int() as i:
-                if self.min_n_dims == 1:
-                    raise ValueError(
-                        "Cannot index into a tensor collection with a 1D tensor with an integer."
-                    )
-
-                with_dim = self[slice(i, i + 1)]
-                out_tensors = {}
-                for k, T in with_dim.tensors.items():
-                    dim, key = k.split("/")
-                    dim_int = int(dim[3:])
-
-                    if dim_int == 1 and key in ("lengths", "bounds"):
-                        # These keys will be dropped as this tensor will become a 1D tensor in truth.
-                        continue
-
-                    new_key = f"dim{dim_int - 1}/{key}"
-                    out_tensors[new_key] = T
-
-                return self.__class__(out_tensors, schema=self.schema, pre_raggedified=True)
-            case slice() as S:
-                st_i = 0 if S.start is None else S.start
-                end_i = S.stop
-
-                if S.step not in (None, 1):
-                    raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
-
-                out_tensors = {}
-                for key in self.keys_at_dim(0):
-                    out_tensors[f"dim0/{key}"] = self.tensors[f"dim0/{key}"][st_i:end_i]
-
-                for dim in range(1, self.max_n_dims):
-                    L = self.tensors[f"dim{dim}/lengths"]
-                    out_tensors[f"dim{dim}/lengths"] = L[st_i:end_i]
-
-                    B = self.tensors[f"dim{dim}/bounds"]
-
-                    if st_i == 0:
-                        offset = 0
-                    else:
-                        offset = B[st_i - 1]
-
-                    B = B[st_i:end_i] - offset
-
-                    out_tensors[f"dim{dim}/bounds"] = B
-
-                    vals_start = offset
-                    if len(B) == 0:
-                        vals_end = offset
-                    else:
-                        vals_end = B[-1] + offset
-
-                    for key in self.keys_at_dim(dim):
-                        out_tensors[f"dim{dim}/{key}"] = self.tensors[f"dim{dim}/{key}"][vals_start:vals_end]
-
-                    st_i = offset
-                    end_i = vals_end
-
-                return JointNestedRaggedTensorDict(out_tensors, schema=self.schema, pre_raggedified=True)
-            case _:
-                raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__}.__getitem__")
+        return self._slice(self._get_slice_indices(idx))
 
     def to_dense(self, padding_side: str = "right") -> dict[str, np.array]:
         """Returns a dense view of these ragged tensors.
@@ -692,28 +737,89 @@ class JointNestedRaggedTensorDict:
                 )
             )
 
-            L = self.tensors[f"dim{dim}/lengths"]
-            max_ln = max(L)
+            B = self.tensors[f"dim{dim}/bounds"]
+            if len(B) > 0:
+                L = np.concatenate([[B[0]], np.diff(B, axis=0)], axis=0)
+                max_ln = max(L)
+            else:
+                L = []
+                max_ln = 0
 
             shape.append(max_ln)
 
+            slice_indices = [idx + (pad_slice(ln, max_ln),) for idx, ln in zip(indices, L)]
+
             if self.keys_at_dim(dim):
                 out[f"dim{dim}/mask"] = np.zeros(shape=tuple(shape), dtype=bool)
-                for idx, ln in zip(indices, L):
-                    out[f"dim{dim}/mask"][idx + (pad_slice(ln, max_ln),)] = True
+                for idx in slice_indices:
+                    out[f"dim{dim}/mask"][idx] = True
 
-            bounds = self.tensors[f"dim{dim}/bounds"]
             for key in self.keys_at_dim(dim):
                 if len(self.tensors[f"dim{dim}/{key}"]) == 0:
                     continue
 
                 out[key] = np.zeros(shape=tuple(shape), dtype=self.tensors[f"dim{dim}/{key}"].dtype)
                 st = 0
-                for idx, ln, b in zip(indices, L, bounds):
-                    out[key][idx + (pad_slice(ln, max_ln),)] = self.tensors[f"dim{dim}/{key}"][st:b]
+                for idx, b in zip(slice_indices, B):
+                    out[key][idx] = self.tensors[f"dim{dim}/{key}"][st:b]
                     st = b
 
         return out
+
+    def squeeze(self, dim: int) -> JointNestedRaggedTensorDict:
+        """Squeeze these tensors to remove an existing, singleton first dimension.
+
+        Args:
+            dim: This is added for compatibility with the PyTorch signature, but must be 0 here.
+
+        Raises:
+            ValueError: If dim != 0 or if the tensors do not have a singleton dimension at the specified
+                level.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T": [[1, 2]],
+            ...     "id": [[[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]]],
+            ...     "val": [[[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]]],
+            ... }, schema={"T": int, "id": int, "val": float})
+            >>> dense_dict = J.squeeze(dim=0).to_dense()
+            >>> dense_dict['T']
+            array([1, 2])
+            >>> dense_dict['id']
+            array([[[1, 2, 3],
+                    [3, 4, 0],
+                    [1, 2, 0]],
+            <BLANKLINE>
+                   [[3, 0, 0],
+                    [3, 2, 2],
+                    [0, 0, 0]]])
+            >>> dense_dict['val']
+            array([[[1. , 0.2, 0. ],
+                    [3.1, 0. , 0. ],
+                    [1. , 2.2, 0. ]],
+            <BLANKLINE>
+                   [[3. , 0. , 0. ],
+                    [3.3, 2. , 0. ],
+                    [0. , 0. , 0. ]]])
+        """
+        if dim != 0:
+            raise ValueError(f"Only supports dim = 0 for now; got {dim}")
+
+        out_tensors = {}
+        out_schema = {}
+        for k, T in self.tensors.items():
+            dim, key = k.split("/")
+            dim_int = int(dim[3:])
+
+            if dim_int == 1 and key == "bounds":
+                # These keys will be dropped as this tensor will become a 1D tensor in truth.
+                continue
+
+            new_key = f"dim{dim_int - 1}/{key}"
+            out_tensors[new_key] = T
+            out_schema[new_key] = T.dtype
+
+        return self.__class__(processed_tensors=out_tensors, schema=out_schema)
 
     def unsqueeze(self, dim: int) -> JointNestedRaggedTensorDict:
         """Expands these tensors to have a new, singleton first dimension.
@@ -725,6 +831,10 @@ class JointNestedRaggedTensorDict:
             ValueError: If dim != 0 or if the tensors are exclusively non-ragged 1D tensors.
 
         Examples:
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]}, schema={"T": int})
+            >>> dense_dict = J.unsqueeze(dim=0).to_dense()
+            >>> dense_dict['T']
+            array([[1, 2, 3]])
             >>> J = JointNestedRaggedTensorDict({
             ...     "T": [1, 2],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
@@ -749,10 +859,6 @@ class JointNestedRaggedTensorDict:
                     [[3. , 0. , 0. ],
                      [3.3, 2. , 0. ],
                      [0. , 0. , 0. ]]]])
-            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]}, schema={"T": int})
-            >>> dense_dict = J.unsqueeze(dim=0).to_dense()
-            >>> dense_dict['T']
-            array([[1, 2, 3]])
         """
         if dim != 0:
             raise ValueError(f"Only supports dim = 0 for now; got {dim}")
@@ -763,33 +869,143 @@ class JointNestedRaggedTensorDict:
             out_tensors[f"dim1/{key}"] = self.tensors[f"dim0/{key}"]
 
         if self.keys_at_dim(0):
-            lengths = np.array([len(self.tensors[f"dim0/{key}"])])
-            bounds = lengths.copy()
+            out_tensors["dim1/bounds"] = np.array([len(self.tensors[f"dim0/{key}"])])
         else:
-            lengths = np.array([len(self.tensors["dim1/lengths"])])
-            bounds = lengths.copy()
-
-        out_tensors["dim1/lengths"] = lengths
-        out_tensors["dim1/bounds"] = bounds
+            out_tensors["dim1/bounds"] = np.array([len(self)])
 
         for dim in range(1, self.max_n_dims):
             new_dim = dim + 1
 
-            lengths = self.tensors[f"dim{dim}/lengths"]
-            bounds = self.tensors[f"dim{dim}/bounds"]
-
-            out_tensors[f"dim{new_dim}/lengths"] = lengths
-            out_tensors[f"dim{new_dim}/bounds"] = bounds
+            out_tensors[f"dim{new_dim}/bounds"] = self.tensors[f"dim{dim}/bounds"]
 
             for key in self.keys_at_dim(dim):
                 out_tensors[f"dim{new_dim}/{key}"] = self.tensors[f"dim{dim}/{key}"]
 
-        return self.__class__(out_tensors, schema=self.schema, pre_raggedified=True)
+        return self.__class__(processed_tensors=out_tensors, schema=self.schema)
+
+    def flatten(self, dim: int = -1) -> JointNestedRaggedTensorDict:
+        """Flattens these tensors along the specified dimension. Currently, only supports dim = -1.
+
+        If a tensor exists at the dimension that greater dimensions will be flattened into, it will be filled
+        with zeros at all added positions.
+        TODO(mmd): Consider supporting other modes, such as duplicating the value.
+
+        Args:
+            dim: The dimension along which to flatten the tensors. Must be -1 currently.
+            expand_strategy:
+
+        Raises:
+            ValueError: If dim != -1.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "S": [1, 2],
+            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ... })
+            >>> dense_dict = J.flatten().to_dense()
+            >>> dense_dict['S']
+            array([1, 2], dtype=uint8)
+            >>> dense_dict['id']
+            array([[1, 2, 3, 3, 4, 1, 2],
+                   [3, 3, 2, 2, 0, 0, 0]], dtype=uint8)
+            >>> dense_dict['val']
+            array([[1. , 0.2, 0. , 3.1, 0. , 1. , 2.2],
+                   [3. , 3.3, 2. , 0. , 0. , 0. , 0. ]], dtype=float32)
+            >>> dense_dict['dim1/mask']
+            array([[ True,  True,  True,  True,  True,  True,  True],
+                   [ True,  True,  True,  True, False, False, False]])
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "S": [1, 2],
+            ...     "ts": [[1,         2,      3],      [4,   5]],
+            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ... })
+            >>> dense_dict = J.to_dense()
+            >>> dense_dict['S']
+            array([1, 2], dtype=uint8)
+            >>> dense_dict['ts']
+            array([[1, 2, 3],
+                   [4, 5, 0]], dtype=uint8)
+            >>> dense_dict['id']
+            array([[[1, 2, 3],
+                    [3, 4, 0],
+                    [1, 2, 0]],
+            <BLANKLINE>
+                   [[3, 0, 0],
+                    [3, 2, 2],
+                    [0, 0, 0]]], dtype=uint8)
+            >>> dense_dict['val']
+            array([[[1. , 0.2, 0. ],
+                    [3.1, 0. , 0. ],
+                    [1. , 2.2, 0. ]],
+            <BLANKLINE>
+                   [[3. , 0. , 0. ],
+                    [3.3, 2. , 0. ],
+                    [0. , 0. , 0. ]]], dtype=float32)
+            >>> dense_dict = J.flatten().to_dense()
+            >>> dense_dict['S']
+            array([1, 2], dtype=uint8)
+            >>> dense_dict['ts']
+            array([[1, 0, 0, 2, 0, 3, 0],
+                   [4, 5, 0, 0, 0, 0, 0]], dtype=uint8)
+            >>> dense_dict['id']
+            array([[1, 2, 3, 3, 4, 1, 2],
+                   [3, 3, 2, 2, 0, 0, 0]], dtype=uint8)
+            >>> dense_dict['val']
+            array([[1. , 0.2, 0. , 3.1, 0. , 1. , 2.2],
+                   [3. , 3.3, 2. , 0. , 0. , 0. , 0. ]], dtype=float32)
+            >>> J.flatten(dim=0)
+            Traceback (most recent call last):
+                ...
+            ValueError: Only supports dim = -1 or 2 for now; got 0
+        """
+        if dim < 0:
+            target_dim = self.max_n_dims + dim
+        else:
+            target_dim = dim
+
+        if target_dim != self.max_n_dims - 1:
+            raise ValueError(f"Only supports dim = -1 or {self.max_n_dims - 1} for now; got {dim}")
+
+        out_tensors = {}
+
+        for d in range(0, target_dim - 1):
+            if d > 0:
+                out_tensors[f"dim{d}/bounds"] = self.tensors[f"dim{d}/bounds"]
+            for k in self.keys_at_dim(d):
+                out_tensors[f"dim{d}/{k}"] = self.tensors[f"dim{d}/{k}"]
+
+        prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
+        for d in range(target_dim, self.max_n_dims):
+            curr_bounds = self.tensors[f"dim{d}/bounds"]
+            st = np.concatenate([[0], curr_bounds[prev_bounds[:-1] - 1]])
+            end = curr_bounds[prev_bounds - 1]
+
+            new_bounds = np.cumsum(end - st)
+            prev_bounds = curr_bounds
+            out_tensors[f"dim{d-1}/bounds"] = new_bounds
+
+            for k in self.keys_at_dim(d):
+                out_tensors[f"dim{d - 1}/{k}"] = self.tensors[f"dim{d}/{k}"]
+
+        if len(self.keys_at_dim(target_dim - 1)) > 0:
+            B = self.tensors[f"dim{target_dim}/bounds"]
+            L = B[-1]
+            indices = np.concatenate([[0], B[:-1]])
+            for k in self.keys_at_dim(target_dim - 1):
+                old_T = self.tensors[f"dim{target_dim-1}/{k}"]
+                new_T = np.zeros(shape=(L,), dtype=old_T.dtype)
+                new_T[indices] = old_T
+                out_tensors[f"dim{target_dim-1}/{k}"] = new_T
+
+        return self.__class__(processed_tensors=out_tensors, schema=self.schema)
 
     def __len__(self) -> int:
         """Returns the length (which is shared across all keys) of these tensors.
 
         Examples:
+            >>> import tempfile
             >>> J = JointNestedRaggedTensorDict({
             ...     "T": [[1, 2, 3], [4, 5]],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
@@ -797,8 +1013,25 @@ class JointNestedRaggedTensorDict:
             ... })
             >>> len(J)
             2
+            >>> with tempfile.NamedTemporaryFile() as f:
+            ...     fp = Path(f.name)
+            ...     J.save(fp)
+            ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...     len(J2)
+            2
         """
-        return len(self.tensors["dim1/lengths"])
+        if self._tensors is None:
+            with safe_open(self._tensors_fp, framework="np") as f:
+                if self.max_n_dims == 1:
+                    k = next(iter(self._tensor_keys))
+                    return f.get_slice(k).get_shape()[0]
+                else:
+                    return f.get_slice("dim1/bounds").get_shape()[0]
+        elif self.max_n_dims == 1:
+            k = next(iter(self._tensor_keys))
+            return len(self.tensors[k])
+        else:
+            return len(self.tensors["dim1/bounds"])
 
     @classmethod
     def vstack(cls, tensor_dicts: list) -> JointNestedRaggedTensorDict:
@@ -968,13 +1201,8 @@ class JointNestedRaggedTensorDict:
                     )
 
                 if dim != 0:
-                    # Here we need to handle lengths and bounds and such as well
-                    lengths_key = f"dim{dim}/lengths"
+                    # Here we need to handle bounds and such as well
                     bounds_key = f"dim{dim}/bounds"
-
-                    out_tensors[lengths_key] = np.concatenate(
-                        (out_tensors[lengths_key], T.tensors[lengths_key])
-                    )
 
                     last_bound = out_tensors[bounds_key][-1] if len(out_tensors[bounds_key]) > 0 else 0
                     out_tensors[bounds_key] = np.concatenate(
@@ -989,124 +1217,172 @@ class JointNestedRaggedTensorDict:
                             f"Failed to concatenate {key} at dim {dim} with args "
                             f"{out_tensors[k_str]} and {T.tensors[k_str]}"
                         ) from e
-        return cls(out_tensors, pre_raggedified=True, schema=out_schema)
+        return cls(processed_tensors=out_tensors, schema=out_schema)
 
-    @classmethod
-    def load_slice(cls, fp: Path, idx: int | slice | np.ndarray) -> JointNestedRaggedTensorDict:
-        """Loads the specified slice of the tensors saved at the given filepath.
+    def _slice_single(
+        self,
+        indices: dict[str, slice | np.ndarray],
+        squeeze_dims: list[int] | None = None,
+    ) -> JointNestedRaggedTensorDict:
+        """Slices this collection of tensors by the given indices."""
 
-        This method uses ``safetensors`` to fetch only the requested slice from the underlying file in an
-        efficient, optimized manner that significantly preserves the resources required to load the entire
-        file.
+        tensors = {}
+        schema = {}
+
+        for k, idx in indices.items():
+            old_dim, key = k.split("/")
+
+            new_key = k
+
+            match idx:
+                case slice() as S:
+                    with self._tensor_at_key(k) as T:
+                        if key == "bounds" and S.start is not None and S.start > 0:
+                            try:
+                                L = T.get_shape()[0]
+                            except Exception:
+                                L = len(T)
+                            if S.start >= L:
+                                tensors[new_key] = np.array([], dtype=T.dtype)
+                            else:
+                                tensors[new_key] = T[S] - T[S.start - 1]
+                        else:
+                            tensors[new_key] = T[S]
+                case _:
+                    raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__} slicing")
+
+            schema[new_key] = tensors[new_key].dtype
+
+        out = self.__class__(processed_tensors=tensors, schema=schema)
+        if squeeze_dims is not None:
+            i = 0
+            for dim in sorted(squeeze_dims):
+                out = out.squeeze(dim - i)
+                i += 1
+        return out
+
+    def _slice(
+        self,
+        indices: tuple[dict[str, slice | np.ndarray], bool]
+        | list[tuple[dict[str, slice | np.ndarray], bool]],
+    ) -> JointNestedRaggedTensorDict:
+        """Returns a new JointNestedRaggedTensorDict that is a slice of this one.
 
         Args:
-            fp: The path from which to load
-            idx: The slice to read.
+            indices: The indices to slice by.
 
-        Returns
-            * If ``idx`` is an `int` or a `slice` object, this returns a `JointNestedRaggedTensorDict`
-              representing the tensors saved at ``fp`` as though they were sliced according to ``idx`` in the
-              first dimension. With an `int` index, the resulting tensors will have their dimensionality
-              reduced by one, and this cannot be called on a collection that already has some tensors that are
-              of dimensionality 1 in it.
-            * If ``idx`` is a numpy array of integers, this returns a `JointNestedRaggedTensorDict`
-              that consists of tensors saved at ``fp`` sliced at the integer indices in ``idx`` and
-              then re-stacked together. Dimensionality will not be reduced. This behavior is consistent with
-              how the tensors would be sliced under ``idx`` were they dense numpy arrays.
+        Returns:
+            A new JointNestedRaggedTensorDict that is a slice of this one.
 
         Examples:
-            >>> import tempfile
-            >>> J = JointNestedRaggedTensorDict({
-            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
-            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
-            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
-            ... })
-            >>> with tempfile.TemporaryDirectory() as dirpath:
-            ...     fp = Path(dirpath) / "tensors.pt"
-            ...     J.save(fp)
-            ...     J2 = JointNestedRaggedTensorDict.load_slice(fp, slice(None, 1))
-            >>> J = J[:1]
-            >>> assert J.keys() == J2.keys(), f"Keys unequal: {J.keys()} != {J2.keys()}"
-            >>> J_dense = J.to_dense()
-            >>> J2_dense = J2.to_dense()
-            >>> for k in J_dense.keys():
-            ...     assert (J_dense[k] == J2_dense[k]).all(), f"Tensors at {k} unequal!"
-            >>> J = JointNestedRaggedTensorDict({
-            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
-            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
-            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
-            ... })
-            >>> with tempfile.TemporaryDirectory() as dirpath:
-            ...     fp = Path(dirpath) / "tensors.pt"
-            ...     J.save(fp)
-            ...     J2 = JointNestedRaggedTensorDict.load_slice(fp, 1)
-            >>> J = J[1]
-            >>> assert J.keys() == J2.keys(), f"Keys unequal: {J.keys()} != {J2.keys()}"
-            >>> J_dense = J.to_dense()
-            >>> J2_dense = J2.to_dense()
-            >>> for k in J_dense.keys():
-            ...     assert (J_dense[k] == J2_dense[k]).all(), f"Tensors at {k} unequal!"
         """
+        match indices:
+            case tuple() as T:
+                return self._slice_single(*T)
+            case dict():
+                return self._slice_single(indices)
+            case list():
+                return self.__class__.vstack([self._slice_single(idx, squeeze_dims=[0]) for idx in indices])
+            case _:
+                raise TypeError(f"{type(indices)} not supported for {self.__class__.__name__} slicing")
+
+    def _get_slice_indices(
+        self, idx: int | slice | tuple | np.ndarray
+    ) -> tuple[dict[str, slice], bool] | list[dict[str, slice]] | dict[str, slice]:
+        """Returns the start and end indices for each dimension of self after slicing by idx."""
 
         match idx:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
-                return cls.vstack([cls.load_slice(fp, int(i)) for i in arr])
+                return [self._get_slice_indices(slice(i, i + 1)) for i in arr]
             case int() as i:
-                return cls.load_slice(fp, slice(i, i + 1))[0]
+                return (self._get_slice_indices(slice(i, i + 1)), [0])
+            case tuple() as T:
+                squeeze_dims = []
+                out_indices = {}
+                seen_non_int = False
+                for dim, idx in enumerate(T):
+                    if seen_non_int:
+                        raise ValueError("Multi-level non-int slicing is not supported.")
+
+                    if isinstance(idx, int):
+                        idx = slice(idx, idx + 1)
+                        squeeze_dims.append(dim)
+                    else:
+                        seen_non_int = True
+
+                    if not isinstance(idx, slice):
+                        raise TypeError(
+                            f"{type(idx)} at index {dim} not supported for "
+                            f"{self.__class__.__name__} tuple slicing"
+                        )
+                    out_indices = self._get_slice_indices_internal(idx, dim, out_indices)
+                return (out_indices, squeeze_dims)
             case slice() as S:
-                st_i = 0 if S.start is None else S.start
-                end_i = S.stop
-
-                if S.step not in (None, 1):
-                    raise ValueError("Only slices with step size of None or 1 are supported; got {S.step}")
-
-                tensors = {}
-                schema = {}
-                with safe_open(fp, framework="np") as f:
-                    keys_by_dim = defaultdict(list)
-
-                    for k in f.keys():
-                        if cls._is_meta_key(k):
-                            continue
-
-                        keys_by_dim[cls._get_dim_from_key_str(k)].append(k)
-
-                    max_n_dims = max(keys_by_dim.keys()) + 1
-
-                    for key in keys_by_dim[0]:
-                        v = f.get_slice(k)[st_i:end_i]
-                        schema[k] = v.dtype
-                        tensors[k] = v
-
-                    for dim in range(1, max_n_dims):
-                        try:
-                            tensors[f"dim{dim}/lengths"] = f.get_slice(f"dim{dim}/lengths")[st_i:end_i]
-                        except SystemError as e:
-                            raise ValueError(
-                                f"Error loading lengths for dim {dim} with st_i={st_i} and end_i={end_i}"
-                            ) from e
-
-                        if st_i == 0:
-                            offset = 0
-                            B = f.get_slice(f"dim{dim}/bounds")[st_i:end_i]
-                        else:
-                            B = f.get_slice(f"dim{dim}/bounds")[st_i - 1 : end_i]
-                            offset = B[0]
-                            B = B[1:] - offset
-
-                        vals_start = offset
-                        vals_end = B[-1] + offset
-
-                        tensors[f"dim{dim}/bounds"] = B
-
-                        for k in keys_by_dim[dim]:
-                            v = f.get_slice(k)[vals_start:vals_end]
-                            schema[k] = v.dtype
-                            tensors[k] = v  # np.split(v, B[:-1])
-
-                        st_i = 0 if st_i == 0 else offset
-                        end_i = B[-1] + offset
-
-                return cls(tensors, schema=schema, pre_raggedified=True)
+                return self._get_slice_indices_internal(S, 0, {})
             case _:
-                raise TypeError(f"{type(idx)} not supported for {cls.__name__}.load_slice")
+                raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__} slicing")
+
+    def _get_slice_indices_internal(
+        self, idx: slice, starting_dim: int, curr_indices: dict[str, slice]
+    ) -> dict[str, slice]:
+        """Returns the start and end indices for each dimension of self after slicing by idx."""
+
+        st_i = 0 if idx.start is None else idx.start
+        end_i = idx.stop
+
+        if idx.step not in (None, 1):
+            raise ValueError("Only slices with step size of None or 1 are supported; got {idx.step}")
+
+        out = {**curr_indices}
+
+        adjusted = False
+        for key in self.keys_at_dim(starting_dim):
+            if f"dim{starting_dim}/{key}" in out and not adjusted:
+                S = out[f"dim{starting_dim}/{key}"]
+                curr_st = S.start
+                curr_end = S.stop
+
+                if curr_st is not None:
+                    st_i += curr_st
+                    if end_i is not None:
+                        end_i += curr_st
+                if curr_end is not None:
+                    if end_i is None:
+                        end_i = curr_end
+                    else:
+                        end_i = min(end_i, curr_end)
+                adjusted = True
+
+            out[f"dim{starting_dim}/{key}"] = slice(st_i, end_i)
+
+        for dim in range(max(starting_dim + 1, 1), self.max_n_dims):
+            out[f"dim{dim}/bounds"] = slice(st_i, end_i)
+
+            with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
+                try:
+                    L = bounds.get_shape()[0]
+                except Exception:
+                    L = len(bounds)
+
+                if st_i != 0:
+                    if st_i <= L:
+                        new_st_i = bounds[st_i - 1]
+                    else:
+                        new_st_i = bounds[-1]
+                else:
+                    new_st_i = 0
+
+                if end_i is None:
+                    new_end_i = bounds[-1]
+                elif end_i > st_i and end_i <= L:
+                    new_end_i = bounds[end_i - 1]
+                else:
+                    new_end_i = new_st_i
+
+            st_i = new_st_i
+            end_i = new_end_i
+
+            for key in self.keys_at_dim(dim):
+                out[f"dim{dim}/{key}"] = slice(st_i, end_i)
+
+        return out
