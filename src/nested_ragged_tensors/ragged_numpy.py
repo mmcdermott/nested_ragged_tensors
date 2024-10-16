@@ -953,7 +953,7 @@ class JointNestedRaggedTensorDict:
             >>> J.flatten(dim=0)
             Traceback (most recent call last):
                 ...
-            ValueError: Only supports dim = -1 or 2 for now; got 0
+            ValueError: Only supports dim = -1 or 1 for now; got 0
         """
         if dim < 0:
             target_dim = self.max_n_dims + dim
@@ -971,7 +971,10 @@ class JointNestedRaggedTensorDict:
             for k in self.keys_at_dim(d):
                 out_tensors[f"dim{d}/{k}"] = self.tensors[f"dim{d}/{k}"]
 
-        prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
+        if target_dim == 1:
+            prev_bounds = np.array([len(self)])
+        else:
+            prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
         for d in range(target_dim, self.max_n_dims):
             curr_bounds = self.tensors[f"dim{d}/bounds"]
             st = np.concatenate([[0], curr_bounds[prev_bounds[:-1] - 1]])
