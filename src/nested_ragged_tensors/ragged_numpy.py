@@ -900,23 +900,6 @@ class JointNestedRaggedTensorDict:
         Examples:
             >>> J = JointNestedRaggedTensorDict({
             ...     "S": [1, 2],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
-            ... })
-            >>> dense_dict = J.flatten().to_dense()
-            >>> dense_dict['S']
-            array([1, 2], dtype=uint8)
-            >>> dense_dict['id']
-            array([[1, 2, 3, 3, 4, 1, 2],
-                   [3, 3, 2, 2, 0, 0, 0]], dtype=uint8)
-            >>> dense_dict['val']
-            array([[1. , 0.2, 0. , 3.1, 0. , 1. , 2.2],
-                   [3. , 3.3, 2. , 0. , 0. , 0. , 0. ]], dtype=float32)
-            >>> dense_dict['dim1/mask']
-            array([[ True,  True,  True,  True,  True,  True,  True],
-                   [ True,  True,  True,  True, False, False, False]])
-            >>> J = JointNestedRaggedTensorDict({
-            ...     "S": [1, 2],
             ...     "ts": [[1,         2,      3],      [4,   5]],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
@@ -955,6 +938,18 @@ class JointNestedRaggedTensorDict:
             >>> dense_dict['val']
             array([[1. , 0.2, 0. , 3.1, 0. , 1. , 2.2],
                    [3. , 3.3, 2. , 0. , 0. , 0. , 0. ]], dtype=float32)
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "ts": [1,         2,      3],
+            ...     "id": [[1, 2, 3], [3, 4], [1, 2]],
+            ...     "val": [[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]],
+            ... })
+            >>> dense_dict = J.flatten().to_dense()
+            >>> dense_dict['ts']
+            array([1, 0, 0, 2, 0, 3, 0], dtype=uint8)
+            >>> dense_dict['id']
+            array([1, 2, 3, 3, 4, 1, 2], dtype=uint8)
+            >>> dense_dict['val']
+            array([1. , 0.2, 0. , 3.1, 0. , 1. , 2.2], dtype=float32)
             >>> J.flatten(dim=0)
             Traceback (most recent call last):
                 ...
