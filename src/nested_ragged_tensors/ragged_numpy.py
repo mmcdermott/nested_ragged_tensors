@@ -900,23 +900,6 @@ class JointNestedRaggedTensorDict:
         Examples:
             >>> J = JointNestedRaggedTensorDict({
             ...     "S": [1, 2],
-            ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
-            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
-            ... })
-            >>> dense_dict = J.flatten().to_dense()
-            >>> dense_dict['S']
-            array([1, 2], dtype=uint8)
-            >>> dense_dict['id']
-            array([[1, 2, 3, 3, 4, 1, 2],
-                   [3, 3, 2, 2, 0, 0, 0]], dtype=uint8)
-            >>> dense_dict['val']
-            array([[1. , 0.2, 0. , 3.1, 0. , 1. , 2.2],
-                   [3. , 3.3, 2. , 0. , 0. , 0. , 0. ]], dtype=float32)
-            >>> dense_dict['dim1/mask']
-            array([[ True,  True,  True,  True,  True,  True,  True],
-                   [ True,  True,  True,  True, False, False, False]])
-            >>> J = JointNestedRaggedTensorDict({
-            ...     "S": [1, 2],
             ...     "ts": [[1,         2,      3],      [4,   5]],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
             ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
@@ -955,10 +938,22 @@ class JointNestedRaggedTensorDict:
             >>> dense_dict['val']
             array([[1. , 0.2, 0. , 3.1, 0. , 1. , 2.2],
                    [3. , 3.3, 2. , 0. , 0. , 0. , 0. ]], dtype=float32)
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "ts": [1,         2,      3],
+            ...     "id": [[1, 2, 3], [3, 4], [1, 2]],
+            ...     "val": [[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]],
+            ... })
+            >>> dense_dict = J.flatten().to_dense()
+            >>> dense_dict['ts']
+            array([1, 0, 0, 2, 0, 3, 0], dtype=uint8)
+            >>> dense_dict['id']
+            array([1, 2, 3, 3, 4, 1, 2], dtype=uint8)
+            >>> dense_dict['val']
+            array([1. , 0.2, 0. , 3.1, 0. , 1. , 2.2], dtype=float32)
             >>> J.flatten(dim=0)
             Traceback (most recent call last):
                 ...
-            ValueError: Only supports dim = -1 or 2 for now; got 0
+            ValueError: Only supports dim = -1 or 1 for now; got 0
         """
         if dim < 0:
             target_dim = self.max_n_dims + dim
@@ -976,7 +971,10 @@ class JointNestedRaggedTensorDict:
             for k in self.keys_at_dim(d):
                 out_tensors[f"dim{d}/{k}"] = self.tensors[f"dim{d}/{k}"]
 
-        prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
+        if target_dim == 1:
+            prev_bounds = np.array([len(self)])
+        else:
+            prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
         for d in range(target_dim, self.max_n_dims):
             curr_bounds = self.tensors[f"dim{d}/bounds"]
             st = np.concatenate([[0], curr_bounds[prev_bounds[:-1] - 1]])
