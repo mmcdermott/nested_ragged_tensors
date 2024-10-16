@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1728651076320,
+  "lastUpdate": 1729038186207,
   "repoUrl": "https://github.com/mmcdermott/nested_ragged_tensors",
   "entries": {
     "Benchmark": [
@@ -5271,6 +5271,145 @@ window.BENCHMARK_DATA = {
             "value": 335500990.4,
             "unit": "bytes",
             "range": 15133949.395363115,
+            "extra": "Count: 10"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "mmcdermott",
+            "username": "mmcdermott"
+          },
+          "committer": {
+            "name": "mmcdermott",
+            "username": "mmcdermott"
+          },
+          "id": "cb55c2f02fcd24bc7fca698fa7a8295a4530dc99",
+          "message": "Fixes flatten on dim=1",
+          "timestamp": "2024-10-11T12:49:24Z",
+          "url": "https://github.com/mmcdermott/nested_ragged_tensors/pull/40/commits/cb55c2f02fcd24bc7fca698fa7a8295a4530dc99"
+        },
+        "date": 1729038185145,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Preparation/InputDiskSize",
+            "value": 26263548,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Duration/Epoch",
+            "value": 1.2760478,
+            "unit": "seconds",
+            "range": 0.019387265735534683,
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Preparation/Memory/build",
+            "value": 257068474,
+            "unit": "bytes"
+          },
+          {
+            "name": "Preparation/Memory/write",
+            "value": 26243508,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Memory/read",
+            "value": 99332,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Memory/benchmark",
+            "value": 1218277786,
+            "unit": "bytes"
+          },
+          {
+            "name": "Preparation/Duration/build",
+            "value": 7.360822,
+            "unit": "seconds"
+          },
+          {
+            "name": "Preparation/Duration/write",
+            "value": 0.021346,
+            "unit": "seconds"
+          },
+          {
+            "name": "Usage/Duration/read",
+            "value": 0.0010707378387451172,
+            "unit": "seconds",
+            "range": 0,
+            "extra": "Count: 1"
+          },
+          {
+            "name": "Usage/Duration/benchmark",
+            "value": 7.144200801849365,
+            "unit": "seconds",
+            "range": 0,
+            "extra": "Count: 1"
+          },
+          {
+            "name": "Usage/Duration/__getitem__",
+            "value": 0.0007335205078125,
+            "unit": "seconds",
+            "range": 0.00020831027211323596,
+            "extra": "Count: 2500"
+          },
+          {
+            "name": "Usage/Duration/_load_dynamic_data",
+            "value": 0.0007277897834777833,
+            "unit": "seconds",
+            "range": 0.00020819173486311102,
+            "extra": "Count: 2500"
+          },
+          {
+            "name": "Usage/Duration/collate",
+            "value": 0.44993979930877687,
+            "unit": "seconds",
+            "range": 0.028655739487393566,
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/static_code",
+            "value": 4088,
+            "unit": "bytes",
+            "range": 101.19288512538814,
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dim1/mask",
+            "value": 128088,
+            "unit": "bytes",
+            "range": 3238.1723240124206,
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/timedelta",
+            "value": 512088,
+            "unit": "bytes",
+            "range": 12952.689296049683,
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dim2/mask",
+            "value": 82900875.2,
+            "unit": "bytes",
+            "range": 4379618.452793043,
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dynamic_value",
+            "value": 331603236.8,
+            "unit": "bytes",
+            "range": 17518473.811172172,
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dynamic_code",
+            "value": 165801662.4,
+            "unit": "bytes",
+            "range": 8759236.905586086,
             "extra": "Count: 10"
           }
         ]
