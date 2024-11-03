@@ -32,7 +32,7 @@ class NRTDataset(BenchmarkableDataset):
 
     @TimeableMixin.TimeAs
     def read(self, read_dir: Path):
-        self.dynamic_data = JointNestedRaggedTensorDict(tensors_fp=read_dir / "dynamics.nrt")
+        self.dynamic_data = JointNestedRaggedTensorDict(tensors_dir=read_dir / "dynamics")
         with open(read_dir / "static_data.pkl", "rb") as f:
             self.static_data, self.index = pickle.load(f)
         self.N = len(self.index)
@@ -41,7 +41,7 @@ class NRTDataset(BenchmarkableDataset):
     def write(cls, data: tuple[dict, JointNestedRaggedTensorDict], data_dir: Path):
         static_data, dynamic_data = data
 
-        dynamics_fp = data_dir / "dynamics.nrt"
+        dynamics_fp = data_dir / "dynamics"
         dynamic_data.save(dynamics_fp)
 
         static_data_fp = data_dir / "static_data.pkl"

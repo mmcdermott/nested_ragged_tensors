@@ -56,6 +56,77 @@ def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
             return False
 
 
+def save_memmap_dict(tensors: dict[str, np.ndarray], dir: Path):
+    """Saves a dictionary of tensors as memory-mapped files.
+    Each tensor is saved in a separate .npy file within a directory.
+    
+    Args:
+        tensors: Dictionary mapping keys to numpy arrays
+        fp: Path to directory where files will be saved
+        
+    Examples:
+        >>> import tempfile
+        >>> import numpy as np
+        >>> tensors = {'a': np.array([1, 2, 3]), 'b': np.array([[4, 5], [6, 7]])}
+        >>> with tempfile.TemporaryDirectory() as tmpdir:
+        ...     save_memmap_dict(tensors, Path(tmpdir))
+        ...     # Verify files were created
+        ...     sorted(p.name for p in Path(tmpdir).glob('*.npy'))
+        ['a.npy', 'b.npy', 'metadata.npy']
+    """
+    dir.mkdir(parents=True, exist_ok=True)
+    metadata = {}
+    
+    for key, tensor in tensors.items():
+        tensor_fp = dir / f"{key}.npy"
+        tensor_fp.parent.mkdir(parents=True, exist_ok=True)
+        np.save(tensor_fp, tensor)
+
+        metadata[key] = {
+            'shape': tensor.shape,
+            'dtype': str(tensor.dtype)
+        }
+    # Save metadata
+    np.save(dir / "metadata.npy", metadata)
+
+def load_memmap_dict(fp: Path) -> dict[str, np.ndarray]:
+    """Loads a dictionary of memory-mapped tensors.
+    
+    Args:
+        fp: Path to directory containing .npy files
+        
+    Returns:
+        Dictionary mapping keys to memory-mapped numpy arrays
+        
+    Examples:
+        >>> import tempfile
+        >>> import numpy as np
+        >>> tensors = {'a': np.array([1, 2, 3]), 'b': np.array([[4, 5], [6, 7]])}
+        >>> with tempfile.TemporaryDirectory() as tmpdir:
+        ...     # Save tensors
+        ...     save_memmap_dict(tensors, Path(tmpdir))
+        ...     # Load and verify
+        ...     loaded = load_memmap_dict(Path(tmpdir))
+        ...     np.array_equal(loaded['a'], tensors['a'])
+        True
+        >>> with tempfile.TemporaryDirectory() as tmpdir:
+        ...     load_memmap_dict(Path(tmpdir))
+        Traceback (most recent call last):
+          ...
+        FileNotFoundError: [Errno 2] No such file or directory: ...
+    """
+    if not fp.is_dir():
+        raise FileNotFoundError(f"Directory {fp} does not exist")
+    
+    metadata = np.load(fp / "metadata.npy", allow_pickle=True).item()
+    tensors = {}
+    
+    for key, info in metadata.items():
+        tensor_fp = fp / f"{key}.npy"
+        tensors[key] = np.load(tensor_fp, mmap_mode='r')
+    
+    return tensors
+
 class JointNestedRaggedTensorDict:
     """Stores tensors internally in the following dictionary structure:
     {
@@ -70,7 +141,7 @@ class JointNestedRaggedTensorDict:
         self,
         raw_tensors: dict[str, NESTED_NUM_LIST_T] | None = None,
         processed_tensors: dict[str, np.ndarray] | None = None,
-        tensors_fp: Path | None = None,
+        tensors_dir: Path | None = None,
         schema: dict[str, np.dtype] | None = None,
     ):
         """Initializes JointNestedRaggedTensorDict with the given tensors.
@@ -78,7 +149,7 @@ class JointNestedRaggedTensorDict:
         Args:
             raw_tensors: A raw dictionary from strings to lists of lists to store in this manner.
             processed_tensors: The tensors to be stored, in pre-processed format.
-            tensors_fp: The filepath from which to load the pre-processed tensors in seafetensors formatt.
+            tensors_dir: The filepath from which to load the pre-processed tensors in seafetensors formatt.
             schema: The schema for the tensors, if known.
 
         Examples:
@@ -95,42 +166,42 @@ class JointNestedRaggedTensorDict:
             >>> J2 = JointNestedRaggedTensorDict(processed_tensors=J.tensors, schema=J.schema)
             >>> assert J == J2
             >>> with tempfile.TemporaryDirectory() as dirpath:
-            ...     fp = Path(dirpath) / "tensors.nrt"
-            ...     J.save(fp)
-            ...     J3 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...     dir = Path(dirpath) / "tensors"
+            ...     J.save(dir)
+            ...     J3 = JointNestedRaggedTensorDict(tensors_dir=dir)
             ...     assert J == J3
             >>> JointNestedRaggedTensorDict({"S": []})
             Traceback (most recent call last):
                 ...
             ValueError: Empty list found for key S! Nested Ragged Tensors does not support empty tensors.
             >>> JointNestedRaggedTensorDict(
-            ...     tensors_fp="foo", raw_tensors={"a": [1, 2, 3]}
+            ...     tensors_dir="foo", raw_tensors={"a": [1, 2, 3]}
             ... ) # doctest: +NORMALIZE_WHITESPACE
             Traceback (most recent call last):
                 ...
-            ValueError: Exactly one of `raw_tensors`, `processed_tensors`, `tensors_fp` must be non-null!
-                        Got raw_tensors={'a': [1, 2, 3]} processed_tensors=None tensors_fp=foo
+            ValueError: Exactly one of `raw_tensors`, `processed_tensors`, `tensors_dir` must be non-null!
+                        Got raw_tensors={'a': [1, 2, 3]} processed_tensors=None tensors_dir=foo
             >>> JointNestedRaggedTensorDict() # doctest: +NORMALIZE_WHITESPACE
             Traceback (most recent call last):
                 ...
-            ValueError: Exactly one of `raw_tensors`, `processed_tensors`, `tensors_fp` must be non-null!
-                        Got raw_tensors=None processed_tensors=None tensors_fp=None
+            ValueError: Exactly one of `raw_tensors`, `processed_tensors`, `tensors_dir` must be non-null!
+                        Got raw_tensors=None processed_tensors=None tensors_dir=None
             >>> with tempfile.TemporaryDirectory() as dirpath:
-            ...     fp = Path(dirpath) / "tensors.nrt"
-            ...     JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...     dir = Path(dirpath) / "tensors"
+            ...     JointNestedRaggedTensorDict(tensors_dir=dir)
             Traceback (most recent call last):
                 ...
-            FileNotFoundError: Tensors filepath must exist, got ...
+            FileNotFoundError: Tensors directory must exist, got ...
         """
         args = [
             ("raw_tensors", raw_tensors),
             ("processed_tensors", processed_tensors),
-            ("tensors_fp", tensors_fp),
+            ("tensors_dir", tensors_dir),
         ]
         if len([a for a, v in args if v is not None]) != 1:
             args_str = " ".join(f"{n}={v}" for n, v in args)
             raise ValueError(
-                "Exactly one of `raw_tensors`, `processed_tensors`, `tensors_fp` must be non-null! Got "
+                "Exactly one of `raw_tensors`, `processed_tensors`, `tensors_dir` must be non-null! Got "
                 f"{args_str}"
             )
 
@@ -139,11 +210,11 @@ class JointNestedRaggedTensorDict:
             self._initialize_tensors(raw_tensors)
         elif processed_tensors is not None:
             self._tensors = processed_tensors
-        elif tensors_fp is not None:
-            if not tensors_fp.is_file():
-                raise FileNotFoundError(f"Tensors filepath must exist, got {tensors_fp}")
+        elif tensors_dir is not None:
+            if not tensors_dir.is_dir():
+                raise FileNotFoundError(f"Tensors directory must exist, got {tensors_dir}")
             self._tensors = None
-            self._tensors_fp = tensors_fp
+            self._tensors_dir = tensors_dir
 
     def __eq__(self, other: object) -> bool:
         """Checks if this JointNestedRaggedTensorDict is equal to another object."""
@@ -165,8 +236,8 @@ class JointNestedRaggedTensorDict:
         schema_arg = f"schema={self.schema}"
         if self._tensors is not None:
             return f"{prefix}processed_tensors={self._tensors}, {schema_arg})"
-        elif self._tensors_fp is not None:
-            return f"{prefix}tensors_fp={str(self._tensors_fp)}, {schema_arg})"
+        elif self._tensors_dir is not None:
+            return f"{prefix}tensors_dir={str(self._tensors_dir)}, {schema_arg})"
         else:
             raise ValueError("No tensors found!")
 
@@ -187,23 +258,61 @@ class JointNestedRaggedTensorDict:
 
     @property
     def tensors(self) -> dict[str, np.ndarray]:
+        """Access the underlying tensors, loading from disk if necessary.
+        
+        Examples:
+            >>> import tempfile
+            >>> with tempfile.TemporaryDirectory() as tmpdir:
+            ...     J = JointNestedRaggedTensorDict(raw_tensors={"a": [1, 2, 3]})
+            ...     dir = Path(tmpdir) / "tensors"
+            ...     J.save(dir)
+            ...     J2 = JointNestedRaggedTensorDict(tensors_dir=dir)
+            ...     np.array_equal(J2.tensors['dim0/a'], np.array([1, 2, 3], dtype=np.uint8))
+            True
+        """
         if self._tensors is None:
-            self._tensors = load_file(self._tensors_fp)
+            self._tensors = load_memmap_dict(self._tensors_dir)
         return self._tensors
 
     @cached_property
     def _tensor_keys(self) -> set[str]:
+        """Get the set of tensor keys.
+        
+        Examples:
+            >>> import tempfile
+            >>> with tempfile.TemporaryDirectory() as tmpdir:
+            ...     J = JointNestedRaggedTensorDict(raw_tensors={"a": [1, 2], "b": [3, 4]})
+            ...     dir = Path(tmpdir) / "tensors"
+            ...     J.save(dir)
+            ...     J2 = JointNestedRaggedTensorDict(tensors_dir=dir)
+            ...     sorted(J2._tensor_keys) == sorted(['dim0/a', 'dim0/b'])
+            True
+        """
         if self._tensors is None:
-            with safe_open(self._tensors_fp, framework="np") as f:
-                return set(f.keys())
+            metadata = np.load(self._tensors_dir / "metadata.npy", allow_pickle=True).item()
+            return set(metadata.keys())
         else:
             return set(self._tensors.keys())
 
     @contextmanager
     def _tensor_at_key(self, key: str):
+        """Context manager for accessing a specific tensor.
+        
+        Examples:
+            >>> import tempfile
+            >>> with tempfile.TemporaryDirectory() as tmpdir:
+            ...     J = JointNestedRaggedTensorDict(raw_tensors={"a": [1, 2, 3]})
+            ...     dir = Path(tmpdir) / "tensors"
+            ...     J.save(dir)
+            ...     J2 = JointNestedRaggedTensorDict(tensors_dir=dir)
+            ...     with J2._tensor_at_key('dim0/a') as tensor:
+            ...         print(np.array_equal(tensor, np.array([1, 2, 3], dtype=np.uint8)))
+            True
+        """
         if self._tensors is None:
-            with safe_open(self._tensors_fp, framework="np") as f:
-                yield f.get_slice(key)
+            tensor_fp = self._tensors_dir / f"{key}.npy"
+            tensor = np.load(tensor_fp, mmap_mode='r')
+            yield tensor
         else:
             yield self._tensors[key]
 
@@ -369,27 +478,21 @@ class JointNestedRaggedTensorDict:
             self._tensors[f"{dim_str}/{k}"] = np.array(flat_vals, dtype=self._schema[k])
 
     def save(self, fp: Path):
-        """Saves the tensor to a file. See `JointNestedRaggedTensorDict.load` for examples.
-
-        Args:
-            fp: The path to which the tensors will be saved.
-
+        """Saves the tensors to a directory of memory-mapped files.
+        
         Examples:
             >>> import tempfile
-            >>> J = JointNestedRaggedTensorDict({
-            ...     "T":   [[1,           2,        3       ], [4,   5          ]],
-            ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
-            ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
-            ... })
-            >>> with tempfile.TemporaryDirectory() as dirpath:
-            ...     fp = Path(dirpath) / "tensors.nrt"
-            ...     J.save(fp)
-            ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
-            ...     assert J == J2
+            >>> with tempfile.TemporaryDirectory() as tmpdir:
+            ...     J = JointNestedRaggedTensorDict(raw_tensors={"a": [1, 2, 3]})
+            ...     dir = Path(tmpdir) / "tensors"
+            ...     J.save(dir)
+            ...     # Verify files were created
+            ...     sorted(str(p.relative_to(dir)) for p in dir.glob('**/*.npy'))
+            ['dim0/a.npy', 'metadata.npy']
         """
         if self._tensors is None:
-            raise ValueError(f"Already saved to {self._tensors_fp}!")
-        save_file(self.tensors, fp)
+            raise ValueError(f"Already saved to {self._tensors_dir}!")
+        save_memmap_dict(self.tensors, fp)
 
     @property
     def max_n_dims(self) -> int:
@@ -1011,21 +1114,19 @@ class JointNestedRaggedTensorDict:
             ... })
             >>> len(J)
             2
-            >>> with tempfile.NamedTemporaryFile() as f:
-            ...     fp = Path(f.name)
-            ...     J.save(fp)
-            ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            >>> with tempfile.TemporaryDirectory() as tmpdir:
+            ...     dir = Path(tmpdir)
+            ...     J.save(dir)
+            ...     J2 = JointNestedRaggedTensorDict(tensors_dir=dir)
             ...     len(J2)
             2
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T": [[1, 2, 3], [4, 5], [6, 7]],
+            ... })
+            >>> len(J)
+            3
         """
-        if self._tensors is None:
-            with safe_open(self._tensors_fp, framework="np") as f:
-                if self.max_n_dims == 1:
-                    k = next(iter(self._tensor_keys))
-                    return f.get_slice(k).get_shape()[0]
-                else:
-                    return f.get_slice("dim1/bounds").get_shape()[0]
-        elif self.max_n_dims == 1:
+        if self.max_n_dims == 1:
             k = next(iter(self._tensor_keys))
             return len(self.tensors[k])
         else:
