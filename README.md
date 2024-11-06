@@ -2,7 +2,7 @@
 
 [![python](https://img.shields.io/badge/-Python_3.10-blue?logo=python&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![tests](https://github.com/mmcdermott/nested_ragged_tensors/actions/workflows/tests.yaml/badge.svg)](https://github.com/mmcdermott/nested_ragged_tensors/actions/workflows/test.yaml)
-[![codecov](https://codecov.io/gh/mmcdermott/nested_ragged_tensors/branch/main/graph/badge.svg?token=F9NYFEN5FX)](https://codecov.io/gh/mmcdermott/EventStreamML)
+[![codecov](https://codecov.io/gh/mmcdermott/nested_ragged_tensors/branch/main/graph/badge.svg?token=F9NYFEN5FX)](https://codecov.io/gh/mmcdermott/nested_ragged_tensors)
 [![code-quality](https://github.com/mmcdermott/nested_ragged_tensors/actions/workflows/code-quality-main.yaml/badge.svg)](https://github.com/mmcdermott/nested_ragged_tensors/actions/workflows/code-quality-main.yaml)
 [![license](https://img.shields.io/badge/License-MIT-green.svg?labelColor=gray)](https://github.com/mmcdermott/nested_ragged_tensors#license)
 [![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/mmcdermott/nested_ragged_tensors/pulls)
