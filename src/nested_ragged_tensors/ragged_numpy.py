@@ -205,7 +205,7 @@ class JointNestedRaggedTensorDict:
             if self._schema is None:
                 self._schema = {}
 
-            for k in self._tensor_keys:
+            for k in sorted(self._tensor_keys):
                 dim, key = k.split("/")
                 if key == "bounds":
                     continue
@@ -414,6 +414,14 @@ class JointNestedRaggedTensorDict:
             ...     J.save(fp)
             ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
             ...     assert J == J2
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     J.save(fp)
+            ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...     J2.save(fp)
+            Traceback (most recent call last):
+                ...
+            ValueError: Already saved to .../tensors.nrt!
         """
         if self._tensors is None:
             raise ValueError(f"Already saved to {self._tensors_fp}!")
@@ -502,12 +510,17 @@ class JointNestedRaggedTensorDict:
             1
             >>> J._get_dim("id")
             2
+            >>> J._get_dim("value")
+            Traceback (most recent call last):
+                ...
+            KeyError: "Key 'value' not found in 'T', 'id', 'val'"
         """
         for k in self._tensor_keys:
             if k.endswith(f"/{key}"):
                 return self._get_dim_from_key_str(k)
 
-        raise KeyError(f"Key {key} not found in {', '.join(self.tensors.keys())}")
+        keys = "', '".join(sorted(self.keys()))
+        raise KeyError(f"Key '{key}' not found in '{keys}'")
 
     def keys_at_dim(self, dim: int) -> set[str]:
         """Returns the keys for tensors that are at that dimensionality.
