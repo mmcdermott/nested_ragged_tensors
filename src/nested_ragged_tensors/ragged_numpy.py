@@ -99,6 +99,12 @@ class JointNestedRaggedTensorDict:
             ...     J.save(fp)
             ...     J3 = JointNestedRaggedTensorDict(tensors_fp=fp)
             ...     assert J == J3
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     J.save(fp)
+            ...     JointNestedRaggedTensorDict(tensors_fp=fp) # doctest: +NORMALIZE_WHITESPACE
+            JointNestedRaggedTensorDict(tensors_fp=.../tensors.nrt,
+                                        schema={'B': dtype('uint8'), 'A': dtype('uint8')})
             >>> JointNestedRaggedTensorDict({"S": []})
             Traceback (most recent call last):
                 ...
@@ -146,7 +152,27 @@ class JointNestedRaggedTensorDict:
             self._tensors_fp = tensors_fp
 
     def __eq__(self, other: object) -> bool:
-        """Checks if this JointNestedRaggedTensorDict is equal to another object."""
+        """Checks if this JointNestedRaggedTensorDict is equal to another object.
+
+        Examples:
+            >>> data = {"A": [[1, 2, 3], [4, 5]], "B": [1, 2]}
+            >>> J = JointNestedRaggedTensorDict(data)
+            >>> J == J
+            True
+            >>> J == JointNestedRaggedTensorDict(data)
+            True
+            >>> J == data
+            False
+            >>> J == JointNestedRaggedTensorDict({"A": data["A"]})
+            False
+            >>> import tempfile
+            >>> with tempfile.NamedTemporaryFile() as f:
+            ...    fp = Path(f.name)
+            ...    J.save(fp)
+            ...    J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...    J == J2
+            True
+        """
 
         if not isinstance(other, JointNestedRaggedTensorDict):
             return False
@@ -167,8 +193,8 @@ class JointNestedRaggedTensorDict:
             return f"{prefix}processed_tensors={self._tensors}, {schema_arg})"
         elif self._tensors_fp is not None:
             return f"{prefix}tensors_fp={str(self._tensors_fp)}, {schema_arg})"
-        else:
-            raise ValueError("No tensors found!")
+        else:  # pragma: no cover
+            raise ValueError("No tensors found! This error should not happen")
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -181,6 +207,8 @@ class JointNestedRaggedTensorDict:
 
             for k in self._tensor_keys:
                 dim, key = k.split("/")
+                if key == "bounds":
+                    continue
                 with self._tensor_at_key(k) as T:
                     self._schema[key] = T[:1].dtype
         return self._schema
