@@ -1474,13 +1474,33 @@ class JointNestedRaggedTensorDict:
     def _get_slice_indices_internal(
         self, idx: slice, starting_dim: int, curr_indices: dict[str, slice]
     ) -> dict[str, slice]:
-        """Returns the start and end indices for each dimension of self after slicing by idx."""
+        """Returns the resolved slice for the given input slice and starting dimension.
+
+        Slice resolution takes into account the nested bounds of the ragged tensor.
+
+        Args:
+            idx: The slice to resolve.
+            starting_dim: The dimension to start resolving from.
+            curr_indices: The current resolved indices.
+
+        Returns:
+            The updated resolved indices.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> J._get_slice_indices_internal(slice(1, 3), 0, {})
+            {'dim0/T': slice(1, 3, None)}
+            >>> J._get_slice_indices_internal(slice(1, 3, 2), 0, {})
+            Traceback (most recent call last):
+                ...
+            ValueError: Only slices with step size of None or 1 are supported; got 2
+        """
 
         st_i = 0 if idx.start is None else idx.start
         end_i = idx.stop
 
         if idx.step not in (None, 1):
-            raise ValueError("Only slices with step size of None or 1 are supported; got {idx.step}")
+            raise ValueError(f"Only slices with step size of None or 1 are supported; got {idx.step}")
 
         out = {**curr_indices}
 
