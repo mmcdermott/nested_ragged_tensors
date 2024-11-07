@@ -161,6 +161,8 @@ class JointNestedRaggedTensorDict:
             True
             >>> J == JointNestedRaggedTensorDict(data)
             True
+            >>> J == JointNestedRaggedTensorDict({"A": [[1, 2, 4], [4, 5]], "B": [1, 2]})
+            False
             >>> J == data
             False
             >>> J == JointNestedRaggedTensorDict({"A": data["A"]})
@@ -202,9 +204,6 @@ class JointNestedRaggedTensorDict:
     @property
     def schema(self) -> dict[str, np.dtype]:
         if not self._schema:
-            if self._schema is None:
-                self._schema = {}
-
             for k in sorted(self._tensor_keys):
                 dim, key = k.split("/")
                 if key == "bounds":
@@ -375,7 +374,7 @@ class JointNestedRaggedTensorDict:
             try:
                 lengths, vals = self._get_lengths_and_values(T)
                 lengths = [np.array(L, dtype=int) for L in lengths]
-            except TypeError as e:
+            except TypeError as e:  # pragma: no cover
                 raise ValueError(f"Failed to parse {k} as a nested list of numbers!") from e
 
             flat_vals = list(itertools.chain.from_iterable(vals))
@@ -389,7 +388,7 @@ class JointNestedRaggedTensorDict:
                 bounds_key = f"{dim_str}/bounds"
                 B = np.cumsum(L, axis=0)
                 if bounds_key in self._tensors:
-                    if not np.array_equal(self._tensors[bounds_key], B):
+                    if not np.array_equal(self._tensors[bounds_key], B):  # pragma: no cover
                         raise ValueError(f"Inconsistent bounds tensors! {self._tensors[bounds_key]} vs. {B}")
                 else:
                     self._tensors[bounds_key] = B
@@ -842,6 +841,10 @@ class JointNestedRaggedTensorDict:
                    [[3. , 0. , 0. ],
                     [3.3, 2. , 0. ],
                     [0. , 0. , 0. ]]])
+            >>> J.squeeze(dim=1)
+            Traceback (most recent call last):
+                ...
+            ValueError: Only supports dim = 0 for now; got 1
         """
         if dim != 0:
             raise ValueError(f"Only supports dim = 0 for now; got {dim}")
@@ -900,6 +903,10 @@ class JointNestedRaggedTensorDict:
                     [[3. , 0. , 0. ],
                      [3.3, 2. , 0. ],
                      [0. , 0. , 0. ]]]])
+            >>> J.unsqueeze(dim=1)
+            Traceback (most recent call last):
+                ...
+            ValueError: Only supports dim = 0 for now; got 1
         """
         if dim != 0:
             raise ValueError(f"Only supports dim = 0 for now; got {dim}")
@@ -1210,6 +1217,31 @@ class JointNestedRaggedTensorDict:
             array([9])
             >>> dense_dict['id']
             array([[1]])
+            >>> J1 = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> J2 = JointNestedRaggedTensorDict({"B": [1, 2, 3]})
+            >>> JointNestedRaggedTensorDict.concatenate([J1, J2])
+            Traceback (most recent call last):
+                ...
+            ValueError: Keys inconsistent! {'B'} != {'T'}
+            >>> J1 = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> J2 = JointNestedRaggedTensorDict({"T": [[1, 2, 3]]})
+            >>> JointNestedRaggedTensorDict.concatenate([J1, J2])
+            Traceback (most recent call last):
+                ...
+            ValueError: Max dims inconsistent! 2 != 1
+            >>> J1 = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> J2 = JointNestedRaggedTensorDict({"T": [1.1, 2.1, 3.4]})
+            >>> JointNestedRaggedTensorDict.concatenate([J1, J2]) # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+                ...
+            ValueError: Schema inconsistent!
+            {'T': <class 'numpy.float32'>} != {'T': <class 'numpy.uint8'>}
+            >>> J1 = JointNestedRaggedTensorDict({"T": [1, 2, 3], "B": [[1], [2], [3]]})
+            >>> J2 = JointNestedRaggedTensorDict({"B": [1, 2, 3], "T": [[1], [2], [3]]})
+            >>> JointNestedRaggedTensorDict.concatenate([J1, J2])
+            Traceback (most recent call last):
+                ...
+            ValueError: Keys inconsistent @ dim 0! {'B'} != {'T'}
         """
 
         if len(tensors) == 1:
@@ -1251,7 +1283,7 @@ class JointNestedRaggedTensorDict:
                     k_str = f"dim{dim}/{key}"
                     try:
                         out_tensors[k_str] = np.concatenate((out_tensors[k_str], T.tensors[k_str]), axis=0)
-                    except Exception as e:
+                    except Exception as e:  # pragma: no cover
                         raise ValueError(
                             f"Failed to concatenate {key} at dim {dim} with args "
                             f"{out_tensors[k_str]} and {T.tensors[k_str]}"
