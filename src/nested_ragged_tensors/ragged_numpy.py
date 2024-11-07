@@ -1487,15 +1487,29 @@ class JointNestedRaggedTensorDict:
             The updated resolved indices.
 
         Examples:
-            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3], "id": [[1, 2], [3, 4], [5, 6]]})
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T": [1, 2, 3],
+            ...     "id": [[1, 2], [3, 4], [5, 6]],
+            ...     "val": [[[1.0], []], [[3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ... })
             >>> J._get_slice_indices_internal(slice(1, 3), 0, {}) # doctest: +NORMALIZE_WHITESPACE
             {'dim0/T': slice(1, 3, None),
              'dim1/bounds': slice(1, 3, None),
-             'dim1/id': slice(np.int64(2), np.int64(6), None)}
+             'dim1/id': slice(np.int64(2), np.int64(6), None),
+             'dim2/bounds': slice(np.int64(2), np.int64(6), None),
+             'dim2/val': slice(np.int64(1), np.int64(9), None)}
             >>> J._get_slice_indices_internal(slice(3, 3), 0, {}) # doctest: +NORMALIZE_WHITESPACE
             {'dim0/T': slice(3, 3, None),
              'dim1/bounds': slice(3, 3, None),
-             'dim1/id': slice(np.int64(6), np.int64(6), None)}
+             'dim1/id': slice(np.int64(6), np.int64(6), None),
+             'dim2/bounds': slice(np.int64(6), np.int64(6), None),
+             'dim2/val': slice(np.int64(9), np.int64(9), None)}
+            >>> J._get_slice_indices_internal(slice(4, 4), 0, {}) # doctest: +NORMALIZE_WHITESPACE
+            {'dim0/T': slice(4, 4, None),
+             'dim1/bounds': slice(4, 4, None),
+             'dim1/id': slice(np.int64(6), np.int64(6), None),
+             'dim2/bounds': slice(np.int64(6), np.int64(6), None),
+             'dim2/val': slice(np.int64(9), np.int64(9), None)}
             >>> J._get_slice_indices_internal(slice(1, 3, 2), 0, {})
             Traceback (most recent call last):
                 ...
