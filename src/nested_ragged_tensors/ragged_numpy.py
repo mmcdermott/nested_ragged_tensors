@@ -1397,6 +1397,11 @@ class JointNestedRaggedTensorDict:
             A new JointNestedRaggedTensorDict that is a slice of this one.
 
         Examples:
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> J._slice(3.4)
+            Traceback (most recent call last):
+                ...
+            TypeError: <class 'float'> not supported for JointNestedRaggedTensorDict slicing
         """
         match indices:
             case tuple() as T:
