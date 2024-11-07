@@ -1113,6 +1113,14 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             ValueError: Only supports dim = -1 or 3 for now; got 0
+
+        The length should expand after flattening.
+
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "a": [[1,2],[3,4],[5,6],[7,8,9,10],[11,12]],
+            ... })
+            >>> print(len(J.flatten()))
+            12
         """
         if dim < 0:
             target_dim = self.max_n_dims + dim
@@ -1134,14 +1142,17 @@ class JointNestedRaggedTensorDict:
             prev_bounds = np.array([len(self)])
         else:
             prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
+
         for d in range(target_dim, self.max_n_dims):
             curr_bounds = self.tensors[f"dim{d}/bounds"]
             st = np.concatenate([[0], curr_bounds[prev_bounds[:-1] - 1]])
             end = curr_bounds[prev_bounds - 1]
 
-            new_bounds = np.cumsum(end - st)
             prev_bounds = curr_bounds
-            out_tensors[f"dim{d-1}/bounds"] = new_bounds
+
+            if d > 1:
+                new_bounds = np.cumsum(end - st)
+                out_tensors[f"dim{d-1}/bounds"] = new_bounds
 
             for k in self.keys_at_dim(d):
                 out_tensors[f"dim{d - 1}/{k}"] = self.tensors[f"dim{d}/{k}"]
