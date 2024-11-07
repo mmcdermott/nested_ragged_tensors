@@ -127,6 +127,13 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             FileNotFoundError: Tensors filepath must exist, got ...
+            >>> JointNestedRaggedTensorDict({
+            ...     "id": [[1],            [3, 4],        [1]],
+            ...     "D":  [[[[5, 6], [7]], [[[8]], [[]]], [[[9, 10]]]]],
+            ... })
+            Traceback (most recent call last):
+                ...
+            ValueError: Failed to parse D as a nested list of numbers!
         """
         args = [
             ("raw_tensors", raw_tensors),
@@ -374,7 +381,7 @@ class JointNestedRaggedTensorDict:
             try:
                 lengths, vals = self._get_lengths_and_values(T)
                 lengths = [np.array(L, dtype=int) for L in lengths]
-            except TypeError as e:  # pragma: no cover
+            except TypeError as e:
                 raise ValueError(f"Failed to parse {k} as a nested list of numbers!") from e
 
             flat_vals = list(itertools.chain.from_iterable(vals))
@@ -994,10 +1001,31 @@ class JointNestedRaggedTensorDict:
             array([1, 2, 3, 3, 4, 1, 2], dtype=uint8)
             >>> dense_dict['val']
             array([1. , 0.2, 0. , 3.1, 0. , 1. , 2.2], dtype=float32)
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "ts": [1,               2,             3],
+            ...     "id": [[1],             [3, 4],        [1]],
+            ...     "D":  [[[[5, 6], [7]]], [[[8]], [[]]], [[[9, 10]]]],
+            ... })
+            >>> dense_dict = J.flatten().to_dense()
+            >>> dense_dict['ts']
+            array([1, 2, 3], dtype=uint8)
+            >>> dense_dict['id']
+            array([[1, 0],
+                   [3, 4],
+                   [1, 0]], dtype=uint8)
+            >>> dense_dict['D']
+            array([[[ 5,  6,  7],
+                    [ 0,  0,  0]],
+            <BLANKLINE>
+                   [[ 8,  0,  0],
+                    [ 0,  0,  0]],
+            <BLANKLINE>
+                   [[ 9, 10,  0],
+                    [ 0,  0,  0]]], dtype=uint8)
             >>> J.flatten(dim=0)
             Traceback (most recent call last):
                 ...
-            ValueError: Only supports dim = -1 or 1 for now; got 0
+            ValueError: Only supports dim = -1 or 3 for now; got 0
         """
         if dim < 0:
             target_dim = self.max_n_dims + dim
