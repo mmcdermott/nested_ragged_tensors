@@ -679,6 +679,7 @@ class JointNestedRaggedTensorDict:
 
         If we drop all values from a tensor, it is omitted from the resulting tensor. This is likely not
         ideal. TODO(mmd): Fix this behavior.
+
             >>> as_dense = J[2][0:1].to_dense()
             >>> assert as_dense.keys() == {'T', 'dim1/mask'}
             >>> as_dense['T']
