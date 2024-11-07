@@ -871,10 +871,10 @@ class JointNestedRaggedTensorDict:
             ValueError: If dim != 0 or if the tensors are exclusively non-ragged 1D tensors.
 
         Examples:
-            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]}, schema={"T": int})
+            >>> J = JointNestedRaggedTensorDict({"T": [[1, 2, 3]]}, schema={"T": int})
             >>> dense_dict = J.unsqueeze(dim=0).to_dense()
             >>> dense_dict['T']
-            array([[1, 2, 3]])
+            array([[[1, 2, 3]]])
             >>> J = JointNestedRaggedTensorDict({
             ...     "T": [1, 2],
             ...     "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
