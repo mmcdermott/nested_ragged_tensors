@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import re
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import cached_property
@@ -18,6 +19,91 @@ NUM_T = int | float
 NUM_LIST_T = list[NUM_T]
 NESTED_NUM_LIST_T = NUM_LIST_T
 NESTED_NUM_LIST_T = list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T
+
+
+def pprint_dense(dense_dict: dict[str, np.ndarray]) -> None:
+    """Pretty prints a dense dictionary of numpy arrays. Purely used to aid in debugging and display.
+
+    Prints dictionaries that are the outputs of `JointNestedRaggedTensorDict.to_dense` in a human-readable,
+    consistent format. This is useful for debugging and for displaying the contents of these dictionaries both
+    in documentation and testing applications. New-lines are avoided to avoid the `<BLANKLINE>` markers
+    doctest requires.
+
+    Args:
+        dense_dict: The dense dictionary to pretty print.
+
+    Examples:
+        >>> J = JointNestedRaggedTensorDict({
+        ...     "A":   [1,                                 2],
+        ...     "T":   [[1,           2,        3       ], [4,   5          ]],
+        ...     "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+        ...     "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+        ... })
+        >>> pprint_dense(J.to_dense())
+        A
+        [1 2]
+        .
+        ---
+        .
+        dim1/mask
+        [[ True  True  True]
+         [ True  True False]]
+        .
+        T
+        [[1 2 3]
+         [4 5 0]]
+        .
+        ---
+        .
+        dim2/mask
+        [[[ True  True  True]
+          [ True  True False]
+          [ True  True False]]
+        .
+         [[ True False False]
+          [ True  True  True]
+          [False False False]]]
+        .
+        id
+        [[[1 2 3]
+          [3 4 0]
+          [1 2 0]]
+        .
+         [[3 0 0]
+          [3 2 2]
+          [0 0 0]]]
+        .
+        val
+        [[[1.  0.2 0. ]
+          [3.1 0.  0. ]
+          [1.  2.2 0. ]]
+        .
+         [[3.  0.  0. ]
+          [3.3 2.  0. ]
+          [0.  0.  0. ]]]
+    """
+    dim_key_regex = re.compile(r"dim\d+/mask")
+
+    dim_keys = {k for k in dense_dict.keys() if dim_key_regex.match(k)}
+    keys_by_dim = {int(k.split("/")[0][3:]): [k] for k in dim_keys}
+    for k, v in sorted(dense_dict.items()):
+        if k in dim_keys:
+            continue
+        dim = v.ndim - 1
+        if dim not in keys_by_dim:
+            keys_by_dim[dim] = []
+        keys_by_dim[dim].append(k)
+
+    lines = []
+    dims = sorted(keys_by_dim.keys())
+    for dim in dims:
+        for k in keys_by_dim[dim]:
+            lines.append(k)
+            lines.append(str(dense_dict[k]).replace("\n\n", "\n.\n"))
+            lines.append(".")
+        lines[-1] = ".\n---\n."
+    lines = lines[:-1]
+    print("\n".join(lines))
 
 
 def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
