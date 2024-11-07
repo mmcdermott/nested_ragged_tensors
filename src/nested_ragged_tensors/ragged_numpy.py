@@ -1089,6 +1089,15 @@ class JointNestedRaggedTensorDict:
             ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
             ...     len(J2)
             2
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> len(J)
+            3
+            >>> with tempfile.NamedTemporaryFile() as f:
+            ...     fp = Path(f.name)
+            ...     J.save(fp)
+            ...     J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
+            ...     len(J2)
+            3
         """
         if self._tensors is None:
             with safe_open(self._tensors_fp, framework="np") as f:
