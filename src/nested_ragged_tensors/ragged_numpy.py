@@ -1142,14 +1142,17 @@ class JointNestedRaggedTensorDict:
             prev_bounds = np.array([len(self)])
         else:
             prev_bounds = self.tensors[f"dim{target_dim-1}/bounds"]
+
         for d in range(target_dim, self.max_n_dims):
             curr_bounds = self.tensors[f"dim{d}/bounds"]
             st = np.concatenate([[0], curr_bounds[prev_bounds[:-1] - 1]])
             end = curr_bounds[prev_bounds - 1]
 
-            new_bounds = np.cumsum(end - st)
             prev_bounds = curr_bounds
-            out_tensors[f"dim{d-1}/bounds"] = new_bounds
+
+            if d > 1:
+                new_bounds = np.cumsum(end - st)
+                out_tensors[f"dim{d-1}/bounds"] = new_bounds
 
             for k in self.keys_at_dim(d):
                 out_tensors[f"dim{d - 1}/{k}"] = self.tensors[f"dim{d}/{k}"]
