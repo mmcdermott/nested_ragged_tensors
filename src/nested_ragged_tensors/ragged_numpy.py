@@ -1292,10 +1292,28 @@ class JointNestedRaggedTensorDict:
 
     def _slice_single(
         self,
-        indices: dict[str, slice | np.ndarray],
+        indices: dict[str, slice],
         squeeze_dims: list[int] | None = None,
     ) -> JointNestedRaggedTensorDict:
-        """Slices this collection of tensors by the given indices."""
+        """Slices this collection of tensors by the given indices.
+
+        Args:
+            indices: The indices to slice by, structured as a dictionary of tensor keys to slices.
+            squeeze_dims: The dimensions to squeeze.
+
+        Returns:
+            A new JointNestedRaggedTensorDict that is a slice of this one.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict(
+            ...     {"T": [1, 2, 3], "id": [[1, 2, 3], [3, 4], [1, 2]]},
+            ...     schema={"T": int, "id": int, "val": float}
+            ... )
+            >>> J._slice_single({"dim0/T": [1, 3]})
+            Traceback (most recent call last):
+                ...
+            TypeError: <class 'list'> not supported for JointNestedRaggedTensorDict slicing
+        """
 
         tensors = {}
         schema = {}
