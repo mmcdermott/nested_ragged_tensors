@@ -778,12 +778,8 @@ class JointNestedRaggedTensorDict:
             )
 
             B = self.tensors[f"dim{dim}/bounds"]
-            if len(B) > 0:
-                L = np.concatenate([[B[0]], np.diff(B, axis=0)], axis=0)
-                max_ln = max(L)
-            else:
-                L = []
-                max_ln = 0
+            L = np.concatenate([[B[0]], np.diff(B, axis=0)], axis=0)
+            max_ln = max(L)
 
             shape.append(max_ln)
 
