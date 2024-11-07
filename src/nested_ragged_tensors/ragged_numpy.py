@@ -1416,7 +1416,29 @@ class JointNestedRaggedTensorDict:
     def _get_slice_indices(
         self, idx: int | slice | tuple | np.ndarray
     ) -> tuple[dict[str, slice], bool] | list[dict[str, slice]] | dict[str, slice]:
-        """Returns the start and end indices for each dimension of self after slicing by idx."""
+        """Returns the start and end indices for each dimension of self after slicing by idx.
+
+        Args:
+            idx: The index to slice by.
+
+        Returns:
+            The slice that should be used for each nested tensor by key.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> J._get_slice_indices(1)
+            ({'dim0/T': slice(1, 2, None)}, [0])
+            >>> J._get_slice_indices(slice(1, 3))
+            {'dim0/T': slice(1, 3, None)}
+            >>> J._get_slice_indices([1, 2])
+            Traceback (most recent call last):
+                ...
+            TypeError: <class 'list'> not supported for JointNestedRaggedTensorDict slicing
+            >>> J._get_slice_indices((1, 2.4))
+            Traceback (most recent call last):
+                ...
+            TypeError: <class 'float'> at index 1 not supported for JointNestedRaggedTensorDict tuple slicing
+        """
 
         match idx:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
