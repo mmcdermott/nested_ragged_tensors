@@ -1,6 +1,7 @@
 # Nested Ragged Tensors
 
 [![python](https://img.shields.io/badge/-Python_3.10-blue?logo=python&logoColor=white)](https://github.com/pre-commit/pre-commit)
+[![docs](https://readthedocs.org/projects/nested-ragged-tensors/badge/?version=latest&style=flat)](https://nested-ragged-tensors.readthedocs.io/)
 [![tests](https://github.com/mmcdermott/nested_ragged_tensors/actions/workflows/tests.yaml/badge.svg)](https://github.com/mmcdermott/nested_ragged_tensors/actions/workflows/test.yaml)
 [![codecov](https://codecov.io/gh/mmcdermott/nested_ragged_tensors/branch/main/graph/badge.svg?token=F9NYFEN5FX)](https://codecov.io/gh/mmcdermott/nested_ragged_tensors)
 [![code-quality](https://github.com/mmcdermott/nested_ragged_tensors/actions/workflows/code-quality-main.yaml/badge.svg)](https://github.com/mmcdermott/nested_ragged_tensors/actions/workflows/code-quality-main.yaml)
@@ -15,22 +16,22 @@ This package contains utilities for efficiently working with joint collections o
 Some terminology:
 
 1. A "_tensor_" is a multi-dimensional array of values. Typically, tensors are stored as dense arrays, such
-   that, when viewed as lists of lists of ... lists, all lists at a given level of nesting have the same
-   length. E.g., a 2D tensor might be stored as `[[1, 2], [3, 4], [5, 6]]`.
+    that, when viewed as lists of lists of ... lists, all lists at a given level of nesting have the same
+    length. E.g., a 2D tensor might be stored as `[[1, 2], [3, 4], [5, 6]]`.
 2. A "_ragged_ tensor" is a tensor where the lists at a given level of nesting do _not_ all have the same
-   length. E.g., a ragged 2D tensor might be stored as `[[1, 2], [3], [4, 5, 6]]`.
+    length. E.g., a ragged 2D tensor might be stored as `[[1, 2], [3], [4, 5, 6]]`.
 3. A "_nested_ ragged tensor" is a set of ragged tensors whose sub-list lengths are hierarchically
-   connected. E.g., we might have a collection of patients, each of whom has a collection of clinic visits,
-   each of which has a collection of laboratory test codes. In this case, while the number of visits and
-   codes per visit are ragged, the codes are still "per-visit", and thus their second level of "raggedness"
-   is identical to the first level of "raggedness" for the visits.
+    connected. E.g., we might have a collection of patients, each of whom has a collection of clinic visits,
+    each of which has a collection of laboratory test codes. In this case, while the number of visits and
+    codes per visit are ragged, the codes are still "per-visit", and thus their second level of "raggedness"
+    is identical to the first level of "raggedness" for the visits.
 4. A collection of "_joint_ nested ragged tensors" is a set of nested ragged tensors that are further
-   connected beyond the (shared) hierarchical connections, such that multiple tensors at a given level of
-   the hierarchy further share the same lengths of their sublists. E.g., we might have a collection of
-   patients, each of whom has a collection of clinic visits, each of which has a collection of laboratory
-   test codes and numeric values. In this case, we have a collection of ragged tensors that are connected in
-   a tree-like structure, where the number of visits and codes per visit can vary across patients and
-   visits, respectively, but the number of codes is the same as the number of values for any given visit.
+    connected beyond the (shared) hierarchical connections, such that multiple tensors at a given level of
+    the hierarchy further share the same lengths of their sublists. E.g., we might have a collection of
+    patients, each of whom has a collection of clinic visits, each of which has a collection of laboratory
+    test codes and numeric values. In this case, we have a collection of ragged tensors that are connected in
+    a tree-like structure, where the number of visits and codes per visit can vary across patients and
+    visits, respectively, but the number of codes is the same as the number of values for any given visit.
 
 This package helps you work with joint nested ragged tensors in a way that is similar to how you might work
 with dense tensors but dramatically more efficient in terms of memory, time, and disk usage than if you
@@ -123,9 +124,9 @@ val
 Note a few things:
 
 1. The densified result contains a `mask` tensor, that indicates what values within a given level are true
-   data elements and which are padding (`True` indicates the data exists, `False` indicates padding).
+    data elements and which are padding (`True` indicates the data exists, `False` indicates padding).
 2. Padding is added to the right by default, but can be added to the left by setting `padding_side="left"`
-   in the `to_dense` call. The padding value is `0`.
+    in the `to_dense` call. The padding value is `0`.
 3. Each level is only densified to that level of nesting.
 
 ### Slicing and Operating

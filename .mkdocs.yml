@@ -1,15 +1,12 @@
-site_name: MEDS-Transforms
-repo_url: https://github.com/mmcdermott/MEDS_transforms
-site_description: Documentation for the MEDS Transforms package
+site_name: Nested Ragged Tensors
+repo_url: https://github.com/mmcdermott/nested_ragged_tensors
+site_description: Documentation for the nested-ragged-tensors package
 site_author: Matthew McDermott
 
 nav:
   - Home: index.md
-  - "Pipeline Configuration": pipeline_configuration.md
-  - "Pre-processing Operations": preprocessing_operation_prototypes.md
-  - "Terminology": terminology.md
   - API: api/
-  - Issues: https://github.com/mmcdermott/MEDS_transforms/issues
+  - Issues: https://github.com/mmcdermott/nested_ragged_tensors/issues
 
 theme:
   name: material
