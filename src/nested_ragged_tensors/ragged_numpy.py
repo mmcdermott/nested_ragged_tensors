@@ -164,7 +164,7 @@ class JointNestedRaggedTensorDict:
         Args:
             raw_tensors: A raw dictionary from strings to lists of lists to store in this manner.
             processed_tensors: The tensors to be stored, in pre-processed format.
-            tensors_fp: The filepath from which to load the pre-processed tensors in seafetensors formatt.
+            tensors_fp: The filepath from which to load the pre-processed tensors in safetensors format.
             schema: The schema for the tensors, if known.
 
         Examples:
@@ -336,8 +336,6 @@ class JointNestedRaggedTensorDict:
         Args:
             T: A nested list of values.
             curr_lengths: The running lengths of the nested list being constructed through recursion.
-            curr_bound_diffs: The running bound differences of the nested list being constructed through
-                recursion.
 
         Returns: The nested lengths and the passed input (unmodified).
 
@@ -536,7 +534,7 @@ class JointNestedRaggedTensorDict:
 
     @property
     def min_n_dims(self) -> int:
-        """Returns the maximum number of dimensions of any tensor in the dictionary.
+        """Returns the minimum number of dimensions of any tensor in the dictionary.
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
@@ -562,8 +560,8 @@ class JointNestedRaggedTensorDict:
         """
         return {k.split("/")[1] for k in self._tensor_keys if not self._is_meta_key(k)}
 
-    @classmethod
-    def _is_meta_key(cls, k: str) -> bool:
+    @staticmethod
+    def _is_meta_key(k: str) -> bool:
         """Returns `True` if and only if ``k`` is a meta-key, rather than a data-key.
 
         Examples:
@@ -576,8 +574,8 @@ class JointNestedRaggedTensorDict:
         """
         return k.endswith("/bounds") or k.endswith("/mask")
 
-    @classmethod
-    def _get_dim_from_key_str(self, full_key_str: str) -> int:
+    @staticmethod
+    def _get_dim_from_key_str(full_key_str: str) -> int:
         """Gets the dimensionality associated with this key.
 
         Examples:
@@ -746,14 +744,14 @@ class JointNestedRaggedTensorDict:
         """
         return self._slice(self._get_slice_indices(idx))
 
-    def to_dense(self, padding_side: str = "right") -> dict[str, np.array]:
+    def to_dense(self, padding_side: str = "right") -> dict[str, np.ndarray]:
         """Returns a dense view of these ragged tensors.
 
         Args:
-            seq_padding_side: The side on which to pad sequences. Must be either "left" or "right".
+            padding_side: The side on which to pad sequences. Must be either "left" or "right".
 
         Raises:
-            ValueError: If ``seq_padding_side`` is not "left" or "right".
+            ValueError: If ``padding_side`` is not "left" or "right".
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
@@ -1030,7 +1028,6 @@ class JointNestedRaggedTensorDict:
 
         Args:
             dim: The dimension along which to flatten the tensors. Must be -1 currently.
-            expand_strategy:
 
         Raises:
             ValueError: If dim != -1.
