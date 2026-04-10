@@ -19,6 +19,9 @@ jobs:
           python-version: "3.12"
           group: "benchmarks"
 
+      - name: Install sample dataset builder
+        run: uv pip install sample_dataset_builder/
+
       - name: Run benchmark
         run: |
           uv run pytest benchmark/run.py

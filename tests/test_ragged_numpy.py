@@ -1,8 +1,7 @@
 """Unit tests for JointNestedRaggedTensorDict.
 
-These complement the existing doctests with multi-step behavioral tests that
-verify operations compose correctly — e.g., squeeze then concatenate, or
-concatenate then re-use the original inputs.
+These complement the existing doctests with multi-step behavioral tests that verify operations compose
+correctly — e.g., squeeze then concatenate, or concatenate then re-use the original inputs.
 """
 
 from __future__ import annotations
@@ -11,19 +10,18 @@ import numpy as np
 
 from nested_ragged_tensors.ragged_numpy import JointNestedRaggedTensorDict
 
-
 # ---------------------------------------------------------------------------
 # squeeze() interoperability
 # ---------------------------------------------------------------------------
 
 
 class TestSqueezeInterop:
-    """Squeezing a singleton outer dimension should produce an object that is
-    interchangeable with one constructed directly from the equivalent flat data."""
+    """Squeezing a singleton outer dimension should produce an object that is interchangeable with one
+    constructed directly from the equivalent flat data."""
 
     def test_squeezed_equals_directly_constructed(self):
-        """squeeze(0) on a single-element outer dim should produce an object
-        equal to one built directly from the unwrapped data."""
+        """Squeeze(0) on a single-element outer dim should produce an object equal to one built directly from
+        the unwrapped data."""
         J_wrapped = JointNestedRaggedTensorDict(
             {"T": [[1, 2]], "id": [[[10, 20], [30, 40]]]},
         )
@@ -34,13 +32,12 @@ class TestSqueezeInterop:
         )
 
         assert J_squeezed == J_direct, (
-            "A squeezed tensor should be equal to a directly-constructed "
-            "tensor with the same data"
+            "A squeezed tensor should be equal to a directly-constructed " "tensor with the same data"
         )
 
     def test_squeezed_to_dense_matches_direct(self):
-        """The dense representation of a squeezed tensor should match what you
-        get by constructing the equivalent object directly."""
+        """The dense representation of a squeezed tensor should match what you get by constructing the
+        equivalent object directly."""
         J_wrapped = JointNestedRaggedTensorDict(
             {"T": [[1, 2]], "id": [[[10, 20], [30, 40]]]},
         )
@@ -51,9 +48,9 @@ class TestSqueezeInterop:
         )
         dense_direct = J_direct.to_dense()
 
-        assert dense_squeezed.keys() == dense_direct.keys(), (
-            f"Key mismatch: {dense_squeezed.keys()} vs {dense_direct.keys()}"
-        )
+        assert (
+            dense_squeezed.keys() == dense_direct.keys()
+        ), f"Key mismatch: {dense_squeezed.keys()} vs {dense_direct.keys()}"
         for key in dense_direct:
             np.testing.assert_array_equal(
                 dense_squeezed[key],
@@ -62,11 +59,9 @@ class TestSqueezeInterop:
             )
 
     def test_concatenate_squeezed_with_direct(self):
-        """A squeezed tensor and a directly-constructed tensor of the same
-        logical structure should be concatenatable."""
-        J1 = JointNestedRaggedTensorDict(
-            {"T": [[1, 2, 3]]}, schema={"T": int}
-        ).squeeze(0)
+        """A squeezed tensor and a directly-constructed tensor of the same logical structure should be
+        concatenatable."""
+        J1 = JointNestedRaggedTensorDict({"T": [[1, 2, 3]]}, schema={"T": int}).squeeze(0)
 
         J2 = JointNestedRaggedTensorDict({"T": [4, 5]}, schema={"T": int})
 
@@ -75,12 +70,14 @@ class TestSqueezeInterop:
         np.testing.assert_array_equal(dense["T"], np.array([1, 2, 3, 4, 5]))
 
     def test_vstack_after_index_round_trips(self):
-        """Indexing individual elements and vstacking them back together should
-        reproduce the original — this is the core dataloader collation pattern."""
-        J = JointNestedRaggedTensorDict({
-            "T": [[1, 2, 3], [4, 5]],
-            "id": [[[10, 20, 30], [40, 50], [60, 70]], [[80], [90, 100, 110]]],
-        })
+        """Indexing individual elements and vstacking them back together should reproduce the original — this
+        is the core dataloader collation pattern."""
+        J = JointNestedRaggedTensorDict(
+            {
+                "T": [[1, 2, 3], [4, 5]],
+                "id": [[[10, 20, 30], [40, 50], [60, 70]], [[80], [90, 100, 110]]],
+            }
+        )
 
         items = [J[i] for i in range(len(J))]
         reconstructed = JointNestedRaggedTensorDict.vstack(items)
@@ -102,16 +99,12 @@ class TestSqueezeInterop:
 
 
 class TestConcatenate:
-    """concatenate() should not modify its inputs and should return independent results."""
+    """Concatenate() should not modify its inputs and should return independent results."""
 
     def test_basic_correctness(self):
         """The concatenated result should contain all elements from both inputs."""
-        J1 = JointNestedRaggedTensorDict(
-            {"T": [[1, 2, 3], [4, 5]]}, schema={"T": int}
-        )
-        J2 = JointNestedRaggedTensorDict(
-            {"T": [[6, 7]]}, schema={"T": int}
-        )
+        J1 = JointNestedRaggedTensorDict({"T": [[1, 2, 3], [4, 5]]}, schema={"T": int})
+        J2 = JointNestedRaggedTensorDict({"T": [[6, 7]]}, schema={"T": int})
 
         result = JointNestedRaggedTensorDict.concatenate([J1, J2])
         dense = result.to_dense()
@@ -124,14 +117,20 @@ class TestConcatenate:
 
     def test_basic_correctness_nested(self):
         """Concatenation should work correctly with deeper nesting."""
-        J1 = JointNestedRaggedTensorDict({
-            "T": [[1, 2], [3]],
-            "id": [[[10, 20], [30]], [[40]]],
-        }, schema={"T": int, "id": int})
-        J2 = JointNestedRaggedTensorDict({
-            "T": [[5, 6, 7]],
-            "id": [[[50], [60, 70], [80]]],
-        }, schema={"T": int, "id": int})
+        J1 = JointNestedRaggedTensorDict(
+            {
+                "T": [[1, 2], [3]],
+                "id": [[[10, 20], [30]], [[40]]],
+            },
+            schema={"T": int, "id": int},
+        )
+        J2 = JointNestedRaggedTensorDict(
+            {
+                "T": [[5, 6, 7]],
+                "id": [[[50], [60, 70], [80]]],
+            },
+            schema={"T": int, "id": int},
+        )
 
         result = JointNestedRaggedTensorDict.concatenate([J1, J2])
         assert len(result) == 3
@@ -139,24 +138,20 @@ class TestConcatenate:
         np.testing.assert_array_equal(dense["T"], np.array([[1, 2, 0], [3, 0, 0], [5, 6, 7]]))
 
     def test_second_input_not_modified(self):
-        """concatenate is documented as modifying the first input in place,
-        but the second (and later) inputs should not be touched."""
-        J1 = JointNestedRaggedTensorDict(
-            {"T": [[1, 2, 3], [4, 5]]}, schema={"T": int}
-        )
+        """Concatenate is documented as modifying the first input in place, but the second (and later) inputs
+        should not be touched."""
+        J1 = JointNestedRaggedTensorDict({"T": [[1, 2, 3], [4, 5]]}, schema={"T": int})
         data2 = {"T": [[6, 7]]}
         J2 = JointNestedRaggedTensorDict(data2, schema={"T": int})
         J2_copy = JointNestedRaggedTensorDict(data2, schema={"T": int})
 
         JointNestedRaggedTensorDict.concatenate([J1, J2])
 
-        assert J2 == J2_copy, (
-            "J2 should not be modified by concatenate()"
-        )
+        assert J2 == J2_copy, "J2 should not be modified by concatenate()"
 
     def test_return_value_independent_from_subsequent_concat(self):
-        """If you call concatenate twice reusing J1, the first return value
-        should not be corrupted by the second call."""
+        """If you call concatenate twice reusing J1, the first return value should not be corrupted by the
+        second call."""
         J1 = JointNestedRaggedTensorDict({"T": [[1, 2]]}, schema={"T": int})
         J2 = JointNestedRaggedTensorDict({"T": [[3]]}, schema={"T": int})
         J3 = JointNestedRaggedTensorDict({"T": [[4, 5, 6]]}, schema={"T": int})
@@ -169,33 +164,43 @@ class TestConcatenate:
 
         # result_a should be [[1,2],[3]] regardless of the second concat call.
         np.testing.assert_array_equal(
-            dense_a["T"], np.array([[1, 2], [3, 0]]),
+            dense_a["T"],
+            np.array([[1, 2], [3, 0]]),
             err_msg="result_a was corrupted by a subsequent concatenate call",
         )
         # result_b should be [[1,2],[4,5,6]] (J1 is not modified by the first concat).
         np.testing.assert_array_equal(
-            dense_b["T"], np.array([[1, 2, 0], [4, 5, 6]]),
+            dense_b["T"],
+            np.array([[1, 2, 0], [4, 5, 6]]),
         )
 
     def test_return_value_independent_from_subsequent_concat_nested(self):
         """Same as above but with deeper nesting to exercise bounds sharing."""
-        J1 = JointNestedRaggedTensorDict({
-            "id": [[[1, 2], [3]]],
-        }, schema={"id": int})
-        J2 = JointNestedRaggedTensorDict({
-            "id": [[[4]]],
-        }, schema={"id": int})
-        J3 = JointNestedRaggedTensorDict({
-            "id": [[[5, 6, 7], [8, 9]]],
-        }, schema={"id": int})
+        J1 = JointNestedRaggedTensorDict(
+            {
+                "id": [[[1, 2], [3]]],
+            },
+            schema={"id": int},
+        )
+        J2 = JointNestedRaggedTensorDict(
+            {
+                "id": [[[4]]],
+            },
+            schema={"id": int},
+        )
+        J3 = JointNestedRaggedTensorDict(
+            {
+                "id": [[[5, 6, 7], [8, 9]]],
+            },
+            schema={"id": int},
+        )
 
         result_a = JointNestedRaggedTensorDict.concatenate([J1, J2])
-        result_b = JointNestedRaggedTensorDict.concatenate([J1, J3])
+        JointNestedRaggedTensorDict.concatenate([J1, J3])  # should not corrupt result_a
 
         # result_a should still reflect J1_original + J2, not J1_original + J2 + J3
         assert len(result_a) == 2, (
-            f"result_a length should be 2, got {len(result_a)} "
-            f"(corrupted by subsequent concatenate)"
+            f"result_a length should be 2, got {len(result_a)} " f"(corrupted by subsequent concatenate)"
         )
 
 
@@ -205,8 +210,8 @@ class TestConcatenate:
 
 
 class TestGetDimFromKeyStr:
-    """_get_dim_from_key_str should be callable from both class and instance
-    context and return the correct dimension number."""
+    """_get_dim_from_key_str should be callable from both class and instance context and return the correct
+    dimension number."""
 
     def test_returns_correct_dim_on_class(self):
         assert JointNestedRaggedTensorDict._get_dim_from_key_str("dim0/T") == 0
