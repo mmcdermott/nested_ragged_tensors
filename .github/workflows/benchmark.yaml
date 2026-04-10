@@ -12,18 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
 
-      - name: Install packages
-        run: |
-          pip install -e .[tests,benchmarks]
-          pip install sample_dataset_builder/
+      - name: Setup package
+        uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+          group: "benchmarks"
 
       - name: Run benchmark
         run: |
-          pytest benchmark/run.py
+          uv run pytest benchmark/run.py
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
