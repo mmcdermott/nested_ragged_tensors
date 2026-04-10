@@ -853,6 +853,18 @@ dependencies = [
     { name = "safetensors" },
 ]
 
+[package.optional-dependencies]
+docs = [
+    { name = "mkdocs" },
+    { name = "mkdocs-gen-files" },
+    { name = "mkdocs-git-authors-plugin" },
+    { name = "mkdocs-git-revision-date-localized-plugin" },
+    { name = "mkdocs-literate-nav" },
+    { name = "mkdocs-material" },
+    { name = "mkdocs-section-index" },
+    { name = "mkdocstrings", extra = ["python"] },
+]
+
 [package.dev-dependencies]
 benchmarks = [
     { name = "memray" },
@@ -866,22 +878,21 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
-docs = [
-    { name = "mkdocs" },
-    { name = "mkdocs-gen-files" },
-    { name = "mkdocs-git-authors-plugin" },
-    { name = "mkdocs-git-revision-date-localized-plugin" },
-    { name = "mkdocs-literate-nav" },
-    { name = "mkdocs-material" },
-    { name = "mkdocs-section-index" },
-    { name = "mkdocstrings", extra = ["python"] },
-]
 
 [package.metadata]
 requires-dist = [
+    { name = "mkdocs", marker = "extra == 'docs'", specifier = "==1.6.0" },
+    { name = "mkdocs-gen-files", marker = "extra == 'docs'", specifier = "==0.5.0" },
+    { name = "mkdocs-git-authors-plugin", marker = "extra == 'docs'", specifier = "==0.9.0" },
+    { name = "mkdocs-git-revision-date-localized-plugin", marker = "extra == 'docs'", specifier = "==1.2.6" },
+    { name = "mkdocs-literate-nav", marker = "extra == 'docs'", specifier = "==0.6.1" },
+    { name = "mkdocs-material", marker = "extra == 'docs'", specifier = "==9.5.31" },
+    { name = "mkdocs-section-index", marker = "extra == 'docs'", specifier = "==0.3.9" },
+    { name = "mkdocstrings", extras = ["python", "shell"], marker = "extra == 'docs'", specifier = "==0.25.2" },
     { name = "numpy" },
     { name = "safetensors" },
 ]
+provides-extras = ["docs"]
 
 [package.metadata.requires-dev]
 benchmarks = [
@@ -895,16 +906,6 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
-]
-docs = [
-    { name = "mkdocs", specifier = "==1.6.0" },
-    { name = "mkdocs-gen-files", specifier = "==0.5.0" },
-    { name = "mkdocs-git-authors-plugin", specifier = "==0.9.0" },
-    { name = "mkdocs-git-revision-date-localized-plugin", specifier = "==1.2.6" },
-    { name = "mkdocs-literate-nav", specifier = "==0.6.1" },
-    { name = "mkdocs-material", specifier = "==9.5.31" },
-    { name = "mkdocs-section-index", specifier = "==0.3.9" },
-    { name = "mkdocstrings", extras = ["python", "shell"], specifier = "==0.25.2" },
 ]
 
 [[package]]
