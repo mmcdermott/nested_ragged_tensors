@@ -164,7 +164,7 @@ class JointNestedRaggedTensorDict:
         Args:
             raw_tensors: A raw dictionary from strings to lists of lists to store in this manner.
             processed_tensors: The tensors to be stored, in pre-processed format.
-            tensors_fp: The filepath from which to load the pre-processed tensors in seafetensors formatt.
+            tensors_fp: The filepath from which to load the pre-processed tensors in safetensors format.
             schema: The schema for the tensors, if known.
 
         Examples:
@@ -336,8 +336,6 @@ class JointNestedRaggedTensorDict:
         Args:
             T: A nested list of values.
             curr_lengths: The running lengths of the nested list being constructed through recursion.
-            curr_bound_diffs: The running bound differences of the nested list being constructed through
-                recursion.
 
         Returns: The nested lengths and the passed input (unmodified).
 
@@ -536,7 +534,7 @@ class JointNestedRaggedTensorDict:
 
     @property
     def min_n_dims(self) -> int:
-        """Returns the maximum number of dimensions of any tensor in the dictionary.
+        """Returns the minimum number of dimensions of any tensor in the dictionary.
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
@@ -562,8 +560,8 @@ class JointNestedRaggedTensorDict:
         """
         return {k.split("/")[1] for k in self._tensor_keys if not self._is_meta_key(k)}
 
-    @classmethod
-    def _is_meta_key(cls, k: str) -> bool:
+    @staticmethod
+    def _is_meta_key(k: str) -> bool:
         """Returns `True` if and only if ``k`` is a meta-key, rather than a data-key.
 
         Examples:
@@ -576,8 +574,8 @@ class JointNestedRaggedTensorDict:
         """
         return k.endswith("/bounds") or k.endswith("/mask")
 
-    @classmethod
-    def _get_dim_from_key_str(self, full_key_str: str) -> int:
+    @staticmethod
+    def _get_dim_from_key_str(full_key_str: str) -> int:
         """Gets the dimensionality associated with this key.
 
         Examples:
@@ -746,14 +744,14 @@ class JointNestedRaggedTensorDict:
         """
         return self._slice(self._get_slice_indices(idx))
 
-    def to_dense(self, padding_side: str = "right") -> dict[str, np.array]:
+    def to_dense(self, padding_side: str = "right") -> dict[str, np.ndarray]:
         """Returns a dense view of these ragged tensors.
 
         Args:
-            seq_padding_side: The side on which to pad sequences. Must be either "left" or "right".
+            padding_side: The side on which to pad sequences. Must be either "left" or "right".
 
         Raises:
-            ValueError: If ``seq_padding_side`` is not "left" or "right".
+            ValueError: If ``padding_side`` is not "left" or "right".
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({
@@ -951,7 +949,8 @@ class JointNestedRaggedTensorDict:
 
             new_key = f"dim{dim_int - 1}/{key}"
             out_tensors[new_key] = T
-            out_schema[new_key] = T.dtype
+            if key != "bounds":
+                out_schema[key] = T.dtype
 
         return self.__class__(processed_tensors=out_tensors, schema=out_schema)
 
@@ -1030,7 +1029,6 @@ class JointNestedRaggedTensorDict:
 
         Args:
             dim: The dimension along which to flatten the tensors. Must be -1 currently.
-            expand_strategy:
 
         Raises:
             ValueError: If dim != -1.
@@ -1248,8 +1246,6 @@ class JointNestedRaggedTensorDict:
     def concatenate(cls, tensors: list) -> JointNestedRaggedTensorDict:
         """Concatenates these tensors with other identically keyed tensors along the existing first dim.
 
-        Critically, this function **modifies** the input tensors in place.
-
         Args:
             tensors: The tensors to concatenate.
 
@@ -1383,7 +1379,7 @@ class JointNestedRaggedTensorDict:
         out_keys = tensors[0].keys()
         out_max_n_dims = tensors[0].max_n_dims
         out_schema = tensors[0].schema
-        out_tensors = tensors[0].tensors
+        out_tensors = dict(tensors[0].tensors)
         out_keys_at_dim = [tensors[0].keys_at_dim(i) for i in range(tensors[0].max_n_dims)]
 
         for T in tensors[1:]:
