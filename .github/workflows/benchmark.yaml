@@ -38,6 +38,8 @@ jobs:
           out_dir = Path('benchmark/outputs')
           merged = []
           for f in sorted(out_dir.glob('*.json')):
+              if f.name == 'combined.json':
+                  continue
               merged.extend(json.loads(f.read_text()))
           (out_dir / 'combined.json').write_text(json.dumps(merged))
           "

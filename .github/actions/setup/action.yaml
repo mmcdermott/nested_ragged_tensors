@@ -6,7 +6,7 @@ inputs:
     required: true
     default: "3.11"
   group:
-    description: The dependency group to install (benchmarks, dev, docs)
+    description: The dependency group to install (dev, benchmarks)
     required: false
     default: "dev"
 runs:

@@ -138,8 +138,7 @@ class TestConcatenate:
         np.testing.assert_array_equal(dense["T"], np.array([[1, 2, 0], [3, 0, 0], [5, 6, 7]]))
 
     def test_second_input_not_modified(self):
-        """Concatenate is documented as modifying the first input in place, but the second (and later) inputs
-        should not be touched."""
+        """Concatenate should not modify any of its inputs."""
         J1 = JointNestedRaggedTensorDict({"T": [[1, 2, 3], [4, 5]]}, schema={"T": int})
         data2 = {"T": [[6, 7]]}
         J2 = JointNestedRaggedTensorDict(data2, schema={"T": int})

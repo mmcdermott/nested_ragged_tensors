@@ -8,6 +8,7 @@ benchmark/outputs/micro.json.
 """
 
 import json
+import pickle
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -53,17 +54,24 @@ def make_1d(n_elements):
     return JointNestedRaggedTensorDict({"val": list(range(n_elements))})
 
 
-def make_2d(n_rows, row_len_range=(5, 50)):
+def make_2d(n_rows, row_len_range=(5, 50), seed=42):
     """2D ragged: each row has a random number of elements."""
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     lo, hi = row_len_range
     rows = [list(range(int(rng.integers(lo, hi)))) for _ in range(n_rows)]
     return JointNestedRaggedTensorDict({"val": rows})
 
 
-def make_3d(n_outer, inner_range=(2, 10), leaf_range=(3, 20)):
+def make_2d_raw(n_rows, row_len_range=(5, 50), seed=42):
+    """Return raw 2D list-of-lists (not wrapped in NRT)."""
+    rng = np.random.default_rng(seed)
+    lo, hi = row_len_range
+    return [list(range(int(rng.integers(lo, hi)))) for _ in range(n_rows)]
+
+
+def make_3d(n_outer, inner_range=(2, 10), leaf_range=(3, 20), seed=42):
     """3D ragged: outer → inner lists → leaf lists."""
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     data = []
     for _ in range(n_outer):
         n_inner = int(rng.integers(*inner_range))
@@ -72,9 +80,9 @@ def make_3d(n_outer, inner_range=(2, 10), leaf_range=(3, 20)):
     return JointNestedRaggedTensorDict({"val": data})
 
 
-def make_multikey_2d(n_rows, n_keys=4, row_len_range=(5, 50)):
+def make_multikey_2d(n_rows, n_keys=4, row_len_range=(5, 50), seed=42):
     """2D ragged with multiple keys sharing the same bounds."""
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     lo, hi = row_len_range
     lengths = [int(rng.integers(lo, hi)) for _ in range(n_rows)]
     raw = {}
@@ -87,7 +95,6 @@ def make_multikey_2d(n_rows, n_keys=4, row_len_range=(5, 50)):
 # Benchmark definitions
 # ---------------------------------------------------------------------------
 
-# (label_suffix, n_elements_or_rows, factory, factory_kwargs)
 SCALE_CONFIGS = [
     ("small", 100),
     ("medium", 1_000),
@@ -149,12 +156,18 @@ def bench_to_dense_3d(results):
         results.append(_make_entry(f"CoreOps/ToDense_3D/{label}", "seconds", mean, std, count))
 
 
+COLLATE_BATCH_SIZES = [
+    ("batch16", 16),
+    ("batch64", 64),
+    ("batch256", 256),
+]
+
+
 def bench_vstack_to_dense(results):
     """Benchmark the collation path: vstack individual items then to_dense."""
-    for label, n in SCALE_CONFIGS:
-        J = make_2d(n)
-        batch_size = min(n, 64)
-        items = [J[i] for i in range(batch_size)]
+    J = make_2d(1000)
+    for label, batch_size in COLLATE_BATCH_SIZES:
+        items = [J[i % len(J)] for i in range(batch_size)]
 
         def run(items=items):
             stacked = JointNestedRaggedTensorDict.vstack(items)
@@ -167,7 +180,7 @@ def bench_vstack_to_dense(results):
 def bench_concatenate(results):
     """Benchmark concatenation of multiple tensors."""
     for label, n in SCALE_CONFIGS:
-        chunks = [make_2d(max(1, n // 4), row_len_range=(5, 20)) for _ in range(4)]
+        chunks = [make_2d(max(1, n // 4), row_len_range=(5, 20), seed=100 + i) for i in range(4)]
 
         def run(chunks=chunks):
             JointNestedRaggedTensorDict.concatenate(chunks)
@@ -223,26 +236,12 @@ def _naive_padded_collate(items_2d):
 
 
 def bench_baseline_comparison(results):
-    """Compare NRT collation path vs naive padding for the same data."""
-    rng = np.random.default_rng(42)
-
+    """Compare NRT vs naive alternatives for collation and serialization."""
     for label, n in SCALE_CONFIGS:
-        # Generate raw data
-        raw_rows = [list(range(int(rng.integers(5, 50)))) for _ in range(n)]
+        raw_rows = make_2d_raw(n, seed=99)
 
-        # NRT path: construct → index → vstack → to_dense
-        J = JointNestedRaggedTensorDict({"val": raw_rows})
+        # --- Collation: naive padding vs NRT vstack+to_dense ---
         batch_size = min(n, 64)
-        items = [J[i] for i in range(batch_size)]
-
-        def nrt_collate(items=items):
-            stacked = JointNestedRaggedTensorDict.vstack(items)
-            stacked.to_dense()
-
-        mean, std, count = _time(nrt_collate)
-        results.append(_make_entry(f"Baseline/Collate_NRT/{label}", "seconds", mean, std, count))
-
-        # Naive path: just pad a list of lists
         batch_raw = raw_rows[:batch_size]
 
         def naive_collate(batch_raw=batch_raw):
@@ -251,7 +250,7 @@ def bench_baseline_comparison(results):
         mean, std, count = _time(naive_collate)
         results.append(_make_entry(f"Baseline/Collate_NaivePad/{label}", "seconds", mean, std, count))
 
-        # NRT construction + save/load overhead vs pickle
+        # --- Serialization round-trip: NRT vs pickle ---
         with TemporaryDirectory() as tmpdir:
             nrt_fp = Path(tmpdir) / "test.nrt"
 
@@ -263,8 +262,6 @@ def bench_baseline_comparison(results):
 
             mean, std, count = _time(nrt_roundtrip)
             results.append(_make_entry(f"Baseline/Roundtrip_NRT/{label}", "seconds", mean, std, count))
-
-            import pickle
 
             pkl_fp = Path(tmpdir) / "test.pkl"
 
