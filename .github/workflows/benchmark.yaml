@@ -22,16 +22,32 @@ jobs:
       - name: Install sample dataset builder
         run: uv pip install sample_dataset_builder/
 
-      - name: Run benchmark
+      - name: Run end-to-end benchmark
         run: |
           uv run pytest benchmark/run.py
+
+      - name: Run micro-benchmarks
+        run: |
+          uv run pytest benchmark/test_micro.py
+
+      - name: Merge benchmark outputs
+        run: |
+          uv run python -c "
+          import json
+          from pathlib import Path
+          out_dir = Path('benchmark/outputs')
+          merged = []
+          for f in sorted(out_dir.glob('*.json')):
+              merged.extend(json.loads(f.read_text()))
+          (out_dir / 'combined.json').write_text(json.dumps(merged))
+          "
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: Benchmark
           tool: "customSmallerIsBetter"
-          output-file-path: benchmark/outputs/output_256_512_5.json
+          output-file-path: benchmark/outputs/combined.json
           # Use personal access token instead of GITHUB_TOKEN due to https://github.community/t/github-action-not-triggering-gh-pages-upon-push/16096
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
