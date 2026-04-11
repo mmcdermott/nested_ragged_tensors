@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775930509735,
+  "lastUpdate": 1775932467768,
   "repoUrl": "https://github.com/mmcdermott/nested_ragged_tensors",
   "entries": {
     "Benchmark": [
@@ -8890,6 +8890,418 @@ window.BENCHMARK_DATA = {
             "name": "Usage/Duration/collate",
             "value": 0.5068095207214356,
             "range": "0.058576971873826586",
+            "unit": "seconds",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/static_code",
+            "value": 4072,
+            "range": "101.19288512538814",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dim1/mask",
+            "value": 128072,
+            "range": "3238.1723240124206",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/timedelta",
+            "value": 512072,
+            "range": "12952.689296049683",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dim2/mask",
+            "value": 83875297.6,
+            "range": "3783487.3488407787",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dynamic_code",
+            "value": 167750523.2,
+            "range": "7566974.697681557",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dynamic_value",
+            "value": 335500974.4,
+            "range": "15133949.395363115",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "mmcdermott",
+            "username": "mmcdermott"
+          },
+          "committer": {
+            "name": "mmcdermott",
+            "username": "mmcdermott"
+          },
+          "id": "515499d58011dda765216dd5a320219c108193a0",
+          "message": "Fix bugs, improve docs, and set up uv for development",
+          "timestamp": "2026-03-12T14:44:29Z",
+          "url": "https://github.com/mmcdermott/nested_ragged_tensors/pull/54/commits/515499d58011dda765216dd5a320219c108193a0"
+        },
+        "date": 1775932467447,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "CoreOps/GetItem_Int/small",
+            "value": 0.000030038734000015664,
+            "range": "0.0000010812448354610295",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/medium",
+            "value": 0.000021654637000011688,
+            "range": "3.361244904648983e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/large",
+            "value": 0.00002146683499998403,
+            "range": "3.7153540834919555e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/small",
+            "value": 0.000023380999996902575,
+            "range": "0.00001140630113028075",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/medium",
+            "value": 0.000024498999999877923,
+            "range": "0.000013926351333309312",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/large",
+            "value": 0.00003226059999690278,
+            "range": "0.000027182124168455443",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/small",
+            "value": 0.000009698799996726847,
+            "range": "0.000006488663940366134",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/medium",
+            "value": 0.000006461599997464873,
+            "range": "0.0000028782641986321644",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/large",
+            "value": 0.0000075134000013576955,
+            "range": "0.000004356215189522947",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/small",
+            "value": 0.00024535479999769904,
+            "range": "0.000025855918254340077",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/medium",
+            "value": 0.0021554997999942314,
+            "range": "0.000046098055492173124",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/large",
+            "value": 0.023862028200002782,
+            "range": "0.005052850214600468",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/small",
+            "value": 0.0013326521999999842,
+            "range": "0.00006260316499520939",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/medium",
+            "value": 0.015602744800000323,
+            "range": "0.004869259408599816",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/large",
+            "value": 0.16200811360000103,
+            "range": "0.0024830817275185357",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch16",
+            "value": 0.00040667060000316725,
+            "range": "0.00006923939095499753",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch64",
+            "value": 0.0014616157999967072,
+            "range": "0.000049342405047903925",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch256",
+            "value": 0.005664969399998654,
+            "range": "0.00011347965918995443",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/small",
+            "value": 0.000050478199997883164,
+            "range": "0.000011402590434190374",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/medium",
+            "value": 0.00005464660000029653,
+            "range": "0.000013414647525099108",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/large",
+            "value": 0.0000788550000009991,
+            "range": "0.000024394592008444336",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/small",
+            "value": 0.002431432599999539,
+            "range": "0.00510196557478903",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/small",
+            "value": 0.0000733202000020583,
+            "range": "0.00004509800601296918",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/medium",
+            "value": 0.00019190299999536365,
+            "range": "0.00007669111960395296",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/medium",
+            "value": 0.00005829179999921053,
+            "range": "0.00002210968250290222",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/large",
+            "value": 0.0004042530000020861,
+            "range": "0.00011407824268647743",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/large",
+            "value": 0.00009494300000199019,
+            "range": "0.00004368204187257895",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/small",
+            "value": 0.0005450612000032606,
+            "range": "0.000028092895469610763",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/medium",
+            "value": 0.004828721999999175,
+            "range": "0.000043893720518510945",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/large",
+            "value": 0.05054015660000175,
+            "range": "0.005312093179136481",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/small",
+            "value": 0.00007604259999993701,
+            "range": "0.000006612837232146553",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/small",
+            "value": 0.0020420882000053097,
+            "range": "0.00007636944943778906",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/small",
+            "value": 0.00023405860000025314,
+            "range": "0.000023305811546727675",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/medium",
+            "value": 0.00007182840000439228,
+            "range": "0.0000031603804061568266",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/medium",
+            "value": 0.018294975199998474,
+            "range": "0.0003208331179286589",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/medium",
+            "value": 0.0011501946000009866,
+            "range": "0.00007367928991993428",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/large",
+            "value": 0.00007562640000458032,
+            "range": "0.000011273563223535105",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/large",
+            "value": 0.16746874659999947,
+            "range": "0.000839526344771924",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/large",
+            "value": 0.010549411200000237,
+            "range": "0.0005775890691230281",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Preparation/InputDiskSize",
+            "value": 26263548,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Duration/Epoch",
+            "value": 1.1842476,
+            "range": "0.03767910605760418",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Preparation/Memory/build",
+            "value": 260208542,
+            "unit": "bytes"
+          },
+          {
+            "name": "Preparation/Memory/write",
+            "value": 26242798,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Memory/read",
+            "value": 99332,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Memory/benchmark",
+            "value": 1227699207,
+            "unit": "bytes"
+          },
+          {
+            "name": "Preparation/Duration/build",
+            "value": 8.158873,
+            "unit": "seconds"
+          },
+          {
+            "name": "Preparation/Duration/write",
+            "value": 0.010647,
+            "unit": "seconds"
+          },
+          {
+            "name": "Usage/Duration/read",
+            "value": 0.0014100074768066406,
+            "range": "null",
+            "unit": "seconds",
+            "extra": "Count: 1"
+          },
+          {
+            "name": "Usage/Duration/benchmark",
+            "value": 6.877880334854126,
+            "range": "null",
+            "unit": "seconds",
+            "extra": "Count: 1"
+          },
+          {
+            "name": "Usage/Duration/__getitem__",
+            "value": 0.0005842005729675293,
+            "range": "0.00006599943418657371",
+            "unit": "seconds",
+            "extra": "Count: 2500"
+          },
+          {
+            "name": "Usage/Duration/_load_dynamic_data",
+            "value": 0.000578922176361084,
+            "range": "0.00006570882580832696",
+            "unit": "seconds",
+            "extra": "Count: 2500"
+          },
+          {
+            "name": "Usage/Duration/collate",
+            "value": 0.44136662483215333,
+            "range": "0.0450832501634918",
             "unit": "seconds",
             "extra": "Count: 10"
           },
