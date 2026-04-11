@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775932467768,
+  "lastUpdate": 1775937482093,
   "repoUrl": "https://github.com/mmcdermott/nested_ragged_tensors",
   "entries": {
     "Benchmark": [
@@ -9344,6 +9344,418 @@ window.BENCHMARK_DATA = {
             "name": "Outputs/BatchSize/dynamic_value",
             "value": 335500974.4,
             "range": "15133949.395363115",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "mmcdermott",
+            "username": "mmcdermott"
+          },
+          "committer": {
+            "name": "mmcdermott",
+            "username": "mmcdermott"
+          },
+          "id": "ac3a0269745f22fe608b73e4c0e28d5889d42ac4",
+          "message": "Fix bugs, improve docs, and set up uv for development",
+          "timestamp": "2026-03-12T14:44:29Z",
+          "url": "https://github.com/mmcdermott/nested_ragged_tensors/pull/54/commits/ac3a0269745f22fe608b73e4c0e28d5889d42ac4"
+        },
+        "date": 1775937481109,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "CoreOps/GetItem_Int/small",
+            "value": 0.000032157337999990434,
+            "range": "0.0000073269858058841715",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/medium",
+            "value": 0.00002899046400001737,
+            "range": "7.967604359876826e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/large",
+            "value": 0.000029651929999999992,
+            "range": "7.558850495166691e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/small",
+            "value": 0.000028994399997372966,
+            "range": "0.000011206088849210748",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/medium",
+            "value": 0.00003306000000122822,
+            "range": "0.000017918409319528443",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/large",
+            "value": 0.00003773059999900852,
+            "range": "0.000026142058780114966",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/small",
+            "value": 0.00001038159999779964,
+            "range": "0.000006997612617282024",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/medium",
+            "value": 0.000007514199995739545,
+            "range": "0.00000361890400994793",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/large",
+            "value": 0.000008524199995463277,
+            "range": "0.000004983691570898067",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/small",
+            "value": 0.00026521179999861033,
+            "range": "0.000017641430173813213",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/medium",
+            "value": 0.0022571024000001215,
+            "range": "0.000039038046162532694",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/large",
+            "value": 0.02464438419999908,
+            "range": "0.005226290582997172",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/small",
+            "value": 0.0013719489999971302,
+            "range": "0.000045271711544356585",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/medium",
+            "value": 0.01659698999999648,
+            "range": "0.006307033503326128",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/large",
+            "value": 0.17206755139999927,
+            "range": "0.001978149473683383",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch16",
+            "value": 0.000471574200000191,
+            "range": "0.00006120661270413211",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch64",
+            "value": 0.0016175597999989577,
+            "range": "0.00006086721911027555",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch256",
+            "value": 0.006246008599998731,
+            "range": "0.00011314570088839618",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/small",
+            "value": 0.00006067139999856863,
+            "range": "0.000013812869339189846",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/medium",
+            "value": 0.00006909319999977015,
+            "range": "0.000014899824167608516",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/large",
+            "value": 0.00009246140000129799,
+            "range": "0.000023389529482545867",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/small",
+            "value": 0.00025634359999457954,
+            "range": "0.0001401559213996758",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/small",
+            "value": 0.00007779359999915414,
+            "range": "0.000032210682046997424",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/medium",
+            "value": 0.00024962500000071943,
+            "range": "0.00011141900420387542",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/medium",
+            "value": 0.00007189479999851756,
+            "range": "0.00002831157558018026",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/large",
+            "value": 0.0005715111999990086,
+            "range": "0.0002860933795229248",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/large",
+            "value": 0.0001035637999990513,
+            "range": "0.000023799240863514836",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/small",
+            "value": 0.0005549021999968317,
+            "range": "0.000020153659067405802",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/medium",
+            "value": 0.004926874800000291,
+            "range": "0.000053606205688401093",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/large",
+            "value": 0.053187516599999186,
+            "range": "0.006133338491061625",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/small",
+            "value": 0.0000754268000008551,
+            "range": "0.000008098185888850351",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/small",
+            "value": 0.0019365330000027825,
+            "range": "0.00006851208032113543",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/small",
+            "value": 0.0003269116000041095,
+            "range": "0.00020373013000822923",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/medium",
+            "value": 0.00007089460000315739,
+            "range": "0.0000033926102527800685",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/medium",
+            "value": 0.01706586240000263,
+            "range": "0.00023147831213648576",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/medium",
+            "value": 0.0010971903999973166,
+            "range": "0.00006850035845649734",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/large",
+            "value": 0.00007370979999734572,
+            "range": "0.000008391504552734237",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/large",
+            "value": 0.17112211920000106,
+            "range": "0.010034760687457676",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/large",
+            "value": 0.00984843539999929,
+            "range": "0.0005350062944758693",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Preparation/InputDiskSize",
+            "value": 26263548,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Duration/Epoch",
+            "value": 1.3042394000000002,
+            "range": "0.040880427826763384",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Preparation/Memory/build",
+            "value": 260208542,
+            "unit": "bytes"
+          },
+          {
+            "name": "Preparation/Memory/write",
+            "value": 26242798,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Memory/read",
+            "value": 99332,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Memory/benchmark",
+            "value": 1227681195,
+            "unit": "bytes"
+          },
+          {
+            "name": "Preparation/Duration/build",
+            "value": 8.507627,
+            "unit": "seconds"
+          },
+          {
+            "name": "Preparation/Duration/write",
+            "value": 0.011729,
+            "unit": "seconds"
+          },
+          {
+            "name": "Usage/Duration/read",
+            "value": 0.0014293193817138672,
+            "range": "null",
+            "unit": "seconds",
+            "extra": "Count: 1"
+          },
+          {
+            "name": "Usage/Duration/benchmark",
+            "value": 7.4595537185668945,
+            "range": "null",
+            "unit": "seconds",
+            "extra": "Count: 1"
+          },
+          {
+            "name": "Usage/Duration/__getitem__",
+            "value": 0.0007372112274169922,
+            "range": "0.00007185372395681395",
+            "unit": "seconds",
+            "extra": "Count: 2500"
+          },
+          {
+            "name": "Usage/Duration/_load_dynamic_data",
+            "value": 0.0007313556671142578,
+            "range": "0.00007160218571047098",
+            "unit": "seconds",
+            "extra": "Count: 2500"
+          },
+          {
+            "name": "Usage/Duration/collate",
+            "value": 0.4633394002914429,
+            "range": "0.046206663097666086",
+            "unit": "seconds",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/static_code",
+            "value": 4072,
+            "range": "101.19288512538814",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dim1/mask",
+            "value": 128072,
+            "range": "3238.1723240124206",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/timedelta",
+            "value": 512072,
+            "range": "12952.689296049683",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dim2/mask",
+            "value": 84019476.8,
+            "range": "3909225.6151984315",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dynamic_code",
+            "value": 168038881.6,
+            "range": "7818451.230396863",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dynamic_value",
+            "value": 336077691.2,
+            "range": "15636902.460793726",
             "unit": "bytes",
             "extra": "Count: 10"
           }
