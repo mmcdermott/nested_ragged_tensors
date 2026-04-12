@@ -30,15 +30,17 @@ jobs:
           --ignore=benchmark --ignore=sample_dataset_builder --ignore=docs
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4.0.1
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@v1
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          report_type: test_results
 
       - name: Check README code snippets
         run: |
