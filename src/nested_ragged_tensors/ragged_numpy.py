@@ -245,6 +245,20 @@ class JointNestedRaggedTensorDict:
             ...     subset[1].to_dense()["T"]
             array([4, 5], dtype=uint8)
 
+            Only the ``dim*/bounds`` entries up to the deepest requested key are loaded; deeper
+            bounds are skipped, so ``max_n_dims`` reflects the loaded subset rather than the
+            on-disk shape.
+
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     JointNestedRaggedTensorDict({
+            ...         "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...         "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...     }).save(fp)
+            ...     shallow = JointNestedRaggedTensorDict(tensors_fp=fp, keys={"T"})
+            ...     shallow.max_n_dims
+            2
+
             Requesting a key that does not exist in the file raises a clear error.
 
             >>> with tempfile.TemporaryDirectory() as dirpath:
@@ -296,25 +310,35 @@ class JointNestedRaggedTensorDict:
     def _load_subset(tensors_fp: Path, keys: Iterable[str]) -> dict[str, np.ndarray]:
         """Eagerly reads a user-requested subset of user-level keys from a safetensors archive.
 
-        All ``dim*/bounds`` entries are always included (they are required for dense reconstruction
-        and slicing). For each requested user-level key ``k``, the matching ``dim*/k`` entry is
-        read. Missing keys raise a ``KeyError`` that lists what is actually available in the file.
+        For each requested user-level key ``k``, the matching ``dim*/k`` entry is read. The
+        ``dim*/bounds`` entries up to the deepest requested key's dimension are also loaded
+        because they are required for slicing and dense reconstruction. Bounds for deeper dims
+        are skipped — they are never referenced by operations that only touch the loaded keys.
+        Missing keys raise a ``KeyError`` that lists what is actually available in the file.
         """
         requested = set(keys)
         with safe_open(tensors_fp, framework="np") as f:
             stored = set(f.keys())
-            needed = {k for k in stored if k.split("/", 1)[1] == "bounds"}
+            needed = set()
             missing = set()
+            max_requested_dim = -1
             for req in requested:
                 matches = {k for k in stored if k.split("/", 1)[1] == req}
                 if not matches:
                     missing.add(req)
+                    continue
                 needed.update(matches)
+                max_requested_dim = max(max_requested_dim, *(int(k.split("/", 1)[0][3:]) for k in matches))
             if missing:
                 available = sorted({k.split("/", 1)[1] for k in stored if k.split("/", 1)[1] != "bounds"})
                 raise KeyError(
                     f"Requested keys {sorted(missing)} not found in {tensors_fp}. Available: {available}"
                 )
+            needed.update(
+                k
+                for k in stored
+                if k.split("/", 1)[1] == "bounds" and int(k.split("/", 1)[0][3:]) <= max_requested_dim
+            )
             return {k: f.get_tensor(k) for k in needed}
 
     def __eq__(self, other: object) -> bool:
