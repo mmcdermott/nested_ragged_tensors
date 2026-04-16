@@ -313,8 +313,7 @@ class JointNestedRaggedTensorDict:
             if missing:
                 available = sorted({k.split("/", 1)[1] for k in stored if k.split("/", 1)[1] != "bounds"})
                 raise KeyError(
-                    f"Requested keys {sorted(missing)} not found in {tensors_fp}. "
-                    f"Available: {available}"
+                    f"Requested keys {sorted(missing)} not found in {tensors_fp}. Available: {available}"
                 )
             return {k: f.get_tensor(k) for k in needed}
 
