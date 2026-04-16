@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import itertools
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
@@ -158,6 +158,7 @@ class JointNestedRaggedTensorDict:
         processed_tensors: dict[str, np.ndarray] | None = None,
         tensors_fp: Path | None = None,
         schema: dict[str, np.dtype] | None = None,
+        keys: Iterable[str] | None = None,
     ):
         """Initializes JointNestedRaggedTensorDict with the given tensors.
 
@@ -166,6 +167,12 @@ class JointNestedRaggedTensorDict:
             processed_tensors: The tensors to be stored, in pre-processed format.
             tensors_fp: The filepath from which to load the pre-processed tensors in safetensors format.
             schema: The schema for the tensors, if known.
+            keys: Restricts the subset of user-level keys loaded from ``tensors_fp``. Only valid when
+                ``tensors_fp`` is provided. When supplied, the backing safetensors archive is opened
+                lazily and only the ``dim*/{k}`` entries for the requested keys are read into memory
+                (the ``dim*/bounds`` entries required for dense reconstruction are always kept).
+                Operations that only reference the loaded keys work unchanged; operations that
+                touch a non-loaded key raise a ``KeyError``.
 
         Examples:
             >>> import tempfile
@@ -220,6 +227,41 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             ValueError: Failed to parse D as a nested list of numbers!
+
+            ``keys=`` restricts which user-level keys are loaded from ``tensors_fp``. The
+            resulting object behaves like a normal ``JointNestedRaggedTensorDict`` for
+            operations that only reference the requested keys, but the unselected tensors
+            are never read from disk.
+
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     JointNestedRaggedTensorDict({
+            ...         "T":   [[1,           2,        3       ], [4,   5          ]],
+            ...         "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
+            ...         "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
+            ...     }).save(fp)
+            ...     subset = JointNestedRaggedTensorDict(tensors_fp=fp, keys={"T", "id"})
+            ...     assert subset.keys() == {"T", "id"}
+            ...     subset[1].to_dense()["T"]
+            array([4, 5], dtype=uint8)
+
+            Requesting a key that does not exist in the file raises a clear error.
+
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     JointNestedRaggedTensorDict({"A": [1, 2, 3]}).save(fp)
+            ...     JointNestedRaggedTensorDict(tensors_fp=fp, keys={"A", "missing"})
+            ... # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+                ...
+            KeyError: "Requested keys ['missing'] not found in ...tensors.nrt. Available: ['A']"
+
+            ``keys=`` is only valid alongside ``tensors_fp``.
+
+            >>> JointNestedRaggedTensorDict(raw_tensors={"A": [1, 2, 3]}, keys={"A"})
+            Traceback (most recent call last):
+                ...
+            ValueError: `keys` may only be specified alongside `tensors_fp`.
         """
         args = [
             ("raw_tensors", raw_tensors),
@@ -233,6 +275,9 @@ class JointNestedRaggedTensorDict:
                 f"{args_str}"
             )
 
+        if keys is not None and tensors_fp is None:
+            raise ValueError("`keys` may only be specified alongside `tensors_fp`.")
+
         self._schema = schema if schema is not None else {}
         if raw_tensors is not None:
             self._initialize_tensors(raw_tensors)
@@ -241,8 +286,37 @@ class JointNestedRaggedTensorDict:
         elif tensors_fp is not None:
             if not tensors_fp.is_file():
                 raise FileNotFoundError(f"Tensors filepath must exist, got {tensors_fp}")
-            self._tensors = None
             self._tensors_fp = tensors_fp
+            if keys is None:
+                self._tensors = None
+            else:
+                self._tensors = self._load_subset(tensors_fp, keys)
+
+    @staticmethod
+    def _load_subset(tensors_fp: Path, keys: Iterable[str]) -> dict[str, np.ndarray]:
+        """Eagerly reads a user-requested subset of user-level keys from a safetensors archive.
+
+        All ``dim*/bounds`` entries are always included (they are required for dense reconstruction
+        and slicing). For each requested user-level key ``k``, the matching ``dim*/k`` entry is
+        read. Missing keys raise a ``KeyError`` that lists what is actually available in the file.
+        """
+        requested = set(keys)
+        with safe_open(tensors_fp, framework="np") as f:
+            stored = set(f.keys())
+            needed = {k for k in stored if k.split("/", 1)[1] == "bounds"}
+            missing = set()
+            for req in requested:
+                matches = {k for k in stored if k.split("/", 1)[1] == req}
+                if not matches:
+                    missing.add(req)
+                needed.update(matches)
+            if missing:
+                available = sorted({k.split("/", 1)[1] for k in stored if k.split("/", 1)[1] != "bounds"})
+                raise KeyError(
+                    f"Requested keys {sorted(missing)} not found in {tensors_fp}. "
+                    f"Available: {available}"
+                )
+            return {k: f.get_tensor(k) for k in needed}
 
     def __eq__(self, other: object) -> bool:
         """Checks if this JointNestedRaggedTensorDict is equal to another object.
