@@ -26,7 +26,7 @@ jobs:
 
       - name: Run tests
         run: >
-          uv run pytest -v --doctest-modules --cov=src --junitxml=junit.xml -s
+          uv run pytest -v --doctest-modules --cov=src --cov-report=xml --junitxml=junit.xml -s
           --ignore=benchmark --ignore=sample_dataset_builder --ignore=docs
 
       - name: Upload coverage to Codecov
@@ -34,6 +34,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
