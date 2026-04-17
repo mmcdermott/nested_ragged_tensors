@@ -357,8 +357,11 @@ class JointNestedRaggedTensorDict:
         ``dim*/k`` entries to expose, plus the ``dim*/bounds`` entries up to the deepest
         requested dimension (needed for slicing and dense reconstruction). Deeper bounds are
         skipped — they are never referenced by operations that only touch the selected keys.
-        The returned list preserves the archive's storage order, so materializing the subset
-        produces the same iteration order as a full ``load_file``.
+        The returned list preserves the archive's raw storage order as reported by
+        ``safe_open(...).keys()``, so subset materialization is deterministic relative to the
+        safetensors key order. Note that this order may differ from ``load_file(...)`` output,
+        which re-groups meta keys; matching ``load_file`` exactly would require reading every
+        tensor, which would defeat the lazy subset load.
 
         ``keys`` must be a non-empty iterable of strings. Bare ``str``/``bytes`` raise
         ``TypeError`` (so ``keys="T"`` doesn't silently iterate character-by-character). Non-str
@@ -394,7 +397,10 @@ class JointNestedRaggedTensorDict:
             needed.update(matches)
             max_requested_dim = max(max_requested_dim, *(int(k.split("/", 1)[0][3:]) for k in matches))
         if missing:
-            available = sorted({k.split("/", 1)[1] for k in stored if k.split("/", 1)[1] != "bounds"})
+            reserved_names = set(JointNestedRaggedTensorDict._RESERVED_SUBSET_NAMES)
+            available = sorted(
+                {k.split("/", 1)[1] for k in stored if k.split("/", 1)[1] not in reserved_names}
+            )
             raise KeyError(
                 f"Requested keys {sorted(missing)} not found in {tensors_fp}. Available: {available}"
             )
