@@ -471,6 +471,24 @@ class JointNestedRaggedTensorDict:
 
     @property
     def tensors(self) -> dict[str, np.ndarray]:
+        """Materialized dict of all stored tensors, keyed as ``dim*/name``.
+
+        Loads from disk on first access when backed by ``tensors_fp``. When the instance was
+        constructed with ``keys=``, only the resolved subset is loaded — the unselected entries
+        are never read.
+
+        Examples:
+            >>> import tempfile
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     JointNestedRaggedTensorDict({
+            ...         "T":  [[1, 2, 3], [4, 5]],
+            ...         "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+            ...     }).save(fp)
+            ...     sub = JointNestedRaggedTensorDict(tensors_fp=fp, keys={"T"})
+            ...     sorted(sub.tensors.keys())
+            ['dim1/T', 'dim1/bounds']
+        """
         if self._tensors is None:
             if self._subset_keys is not None:
                 with safe_open(self._tensors_fp, framework="np") as f:
