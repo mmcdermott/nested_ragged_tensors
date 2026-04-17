@@ -344,6 +344,11 @@ class JointNestedRaggedTensorDict:
     def __eq__(self, other: object) -> bool:
         """Checks if this JointNestedRaggedTensorDict is equal to another object.
 
+        Follows IEEE semantics for floating-point values: ``NaN != NaN``, so two NRTs containing
+        ``NaN`` values will compare unequal even if they are bitwise-identical. Callers who want
+        to treat ``NaN`` as equal to itself (e.g. when checking save/load roundtrips of tensors
+        that use ``NaN`` as a sentinel) should use :meth:`equals` with ``equal_nan=True``.
+
         Examples:
             >>> data = {"A": [[1, 2, 3], [4, 5]], "B": [1, 2]}
             >>> J = JointNestedRaggedTensorDict(data)
@@ -364,8 +369,39 @@ class JointNestedRaggedTensorDict:
             ...    J2 = JointNestedRaggedTensorDict(tensors_fp=fp)
             ...    J == J2
             True
-        """
 
+            ``NaN`` values follow IEEE semantics and are never equal to themselves, so NRTs
+            containing ``NaN`` compare unequal under ``==`` even when bitwise-identical. Use
+            :meth:`equals` with ``equal_nan=True`` when that behavior is undesired.
+
+            >>> nan_data = {"T": [[float("nan"), 1.0], [float("nan"), 2.0]]}
+            >>> JointNestedRaggedTensorDict(nan_data) == JointNestedRaggedTensorDict(nan_data)
+            False
+        """
+        return self.equals(other, equal_nan=False)
+
+    def equals(self, other: object, equal_nan: bool = False) -> bool:
+        """Checks equality with configurable ``NaN`` handling.
+
+        Identical in logic to :meth:`__eq__`, except that ``equal_nan`` controls whether two
+        ``NaN`` values at the same position are treated as equal (``True``) or unequal
+        (``False``, matching IEEE 754). ``__eq__`` calls this with ``equal_nan=False``.
+
+        Args:
+            other: The object to compare against.
+            equal_nan: If ``True``, two ``NaN`` values at the same position compare equal. If
+                ``False``, ``NaN != NaN`` as in standard IEEE semantics.
+
+        Examples:
+            >>> nan_data = {"T": [[float("nan"), 1.0], [float("nan"), 2.0]]}
+            >>> J = JointNestedRaggedTensorDict(nan_data)
+            >>> J.equals(JointNestedRaggedTensorDict(nan_data))
+            False
+            >>> J.equals(JointNestedRaggedTensorDict(nan_data), equal_nan=True)
+            True
+            >>> J.equals({"T": [[float("nan"), 1.0], [float("nan"), 2.0]]}, equal_nan=True)
+            False
+        """
         if not isinstance(other, JointNestedRaggedTensorDict):
             return False
 
@@ -373,7 +409,7 @@ class JointNestedRaggedTensorDict:
             return False
 
         for k in self._tensor_keys:
-            if not np.array_equal(self.tensors[k], other.tensors[k]):
+            if not np.array_equal(self.tensors[k], other.tensors[k], equal_nan=equal_nan):
                 return False
 
         return True
