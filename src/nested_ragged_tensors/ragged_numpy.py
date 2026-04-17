@@ -281,8 +281,10 @@ class JointNestedRaggedTensorDict:
             ValueError: `keys` may only be specified alongside `tensors_fp`.
 
             ``keys`` must be a non-empty iterable of strings. Bare strings are rejected (so a
-            typo like ``keys="T"`` doesn't silently iterate character-by-character), and empty
-            collections are rejected because the resulting object would have no usable tensors.
+            typo like ``keys="T"`` doesn't silently iterate character-by-character), non-str
+            elements are rejected, empty collections are rejected, and the reserved meta-names
+            ``bounds`` / ``mask`` are rejected (they refer to internal ragged-structure tensors,
+            not user-level data).
 
             >>> with tempfile.TemporaryDirectory() as dirpath:
             ...     fp = Path(dirpath) / "tensors.nrt"
@@ -298,6 +300,22 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             ValueError: `keys` must be non-empty.
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     JointNestedRaggedTensorDict({"A": [1, 2, 3]}).save(fp)
+            ...     JointNestedRaggedTensorDict(tensors_fp=fp, keys={"A", 1})
+            Traceback (most recent call last):
+                ...
+            TypeError: `keys` must contain only strings; got elements of type ['int'].
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     JointNestedRaggedTensorDict({"A": [[1, 2], [3]]}).save(fp)
+            ...     JointNestedRaggedTensorDict(tensors_fp=fp, keys={"bounds"})
+            ... # doctest: +NORMALIZE_WHITESPACE
+            Traceback (most recent call last):
+                ...
+            ValueError: `keys` may not contain reserved meta-names ['bounds'];
+                these refer to internal ragged-structure tensors, not user-level data.
         """
         args = [
             ("raw_tensors", raw_tensors),
@@ -314,7 +332,7 @@ class JointNestedRaggedTensorDict:
         if keys is not None and tensors_fp is None:
             raise ValueError("`keys` may only be specified alongside `tensors_fp`.")
 
-        self._subset_keys: set[str] | None = None
+        self._subset_keys: list[str] | None = None
         self._schema = schema if schema is not None else {}
         if raw_tensors is not None:
             self._initialize_tensors(raw_tensors)
@@ -328,28 +346,43 @@ class JointNestedRaggedTensorDict:
             if keys is not None:
                 self._subset_keys = self._resolve_subset_keys(tensors_fp, keys)
 
+    _RESERVED_SUBSET_NAMES: tuple[str, ...] = ("bounds", "mask")
+
     @staticmethod
-    def _resolve_subset_keys(tensors_fp: Path, keys: Iterable[str]) -> set[str]:
-        """Resolves the set of safetensors keys to expose for a subset load.
+    def _resolve_subset_keys(tensors_fp: Path, keys: Iterable[str]) -> list[str]:
+        """Resolves the list of safetensors keys to expose for a subset load.
 
         Opens ``tensors_fp`` for metadata only (no tensor reads). Validates that every requested
-        user-level key ``k`` maps to at least one ``dim*/k`` entry and returns the full set of
+        user-level key ``k`` maps to at least one ``dim*/k`` entry and returns the full list of
         ``dim*/k`` entries to expose, plus the ``dim*/bounds`` entries up to the deepest
         requested dimension (needed for slicing and dense reconstruction). Deeper bounds are
         skipped — they are never referenced by operations that only touch the selected keys.
-        Missing keys raise ``KeyError`` listing what is actually available.
+        The returned list preserves the archive's storage order, so materializing the subset
+        produces the same iteration order as a full ``load_file``.
 
         ``keys`` must be a non-empty iterable of strings. Bare ``str``/``bytes`` raise
-        ``TypeError`` (so ``keys="T"`` doesn't silently iterate character-by-character), and an
-        empty iterable raises ``ValueError``.
+        ``TypeError`` (so ``keys="T"`` doesn't silently iterate character-by-character). Non-str
+        elements also raise ``TypeError``. Reserved meta-names (``bounds``, ``mask``) are
+        rejected with ``ValueError``. An empty iterable raises ``ValueError``. Missing keys
+        raise ``KeyError`` listing what is actually available.
         """
         if isinstance(keys, (str, bytes)):
             raise TypeError("`keys` must be an iterable of strings, not a bare str/bytes.")
         requested = set(keys)
         if not requested:
             raise ValueError("`keys` must be non-empty.")
+        bad_types = sorted({type(k).__name__ for k in requested if not isinstance(k, str)})
+        if bad_types:
+            raise TypeError(f"`keys` must contain only strings; got elements of type {bad_types}.")
+        reserved = requested & set(JointNestedRaggedTensorDict._RESERVED_SUBSET_NAMES)
+        if reserved:
+            raise ValueError(
+                f"`keys` may not contain reserved meta-names {sorted(reserved)}; these refer "
+                "to internal ragged-structure tensors, not user-level data."
+            )
         with safe_open(tensors_fp, framework="np") as f:
-            stored = set(f.keys())
+            stored_order = list(f.keys())
+        stored = set(stored_order)
         needed: set[str] = set()
         missing: set[str] = set()
         max_requested_dim = -1
@@ -370,7 +403,7 @@ class JointNestedRaggedTensorDict:
             for k in stored
             if k.split("/", 1)[1] == "bounds" and int(k.split("/", 1)[0][3:]) <= max_requested_dim
         )
-        return needed
+        return [k for k in stored_order if k in needed]
 
     def __eq__(self, other: object) -> bool:
         """Checks if this JointNestedRaggedTensorDict is equal to another object.
@@ -475,7 +508,9 @@ class JointNestedRaggedTensorDict:
 
         Loads from disk on first access when backed by ``tensors_fp``. When the instance was
         constructed with ``keys=``, only the resolved subset is loaded — the unselected entries
-        are never read.
+        are never read. Iteration order of the returned dict is the archive's raw storage order
+        (as reported by ``safe_open().keys()``) filtered to the subset, so it is deterministic
+        across runs rather than depending on set-hash iteration.
 
         Examples:
             >>> import tempfile
@@ -485,8 +520,8 @@ class JointNestedRaggedTensorDict:
             ...         "T":  [[1, 2, 3], [4, 5]],
             ...         "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
             ...     }).save(fp)
-            ...     sub = JointNestedRaggedTensorDict(tensors_fp=fp, keys={"T"})
-            ...     sorted(sub.tensors.keys())
+            ...     sub = JointNestedRaggedTensorDict(tensors_fp=fp, keys={"T"}).tensors
+            ...     list(sub)
             ['dim1/T', 'dim1/bounds']
         """
         if self._tensors is None:
