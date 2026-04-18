@@ -12,7 +12,6 @@ without the ``test_`` prefix so bare ``pytest`` in the repo root does not auto-c
 """
 
 import json
-import pickle
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -64,13 +63,6 @@ def make_2d(n_rows, row_len_range=(5, 50), seed=42):
     lo, hi = row_len_range
     rows = [list(range(int(rng.integers(lo, hi)))) for _ in range(n_rows)]
     return JointNestedRaggedTensorDict({"val": rows})
-
-
-def make_2d_raw(n_rows, row_len_range=(5, 50), seed=42):
-    """Return raw 2D list-of-lists (not wrapped in NRT)."""
-    rng = np.random.default_rng(seed)
-    lo, hi = row_len_range
-    return [list(range(int(rng.integers(lo, hi)))) for _ in range(n_rows)]
 
 
 def make_3d(n_outer, inner_range=(2, 10), leaf_range=(3, 20), seed=42):
@@ -226,60 +218,6 @@ def bench_multikey(results):
 
 
 # ---------------------------------------------------------------------------
-# Tier 2D: Naive baseline comparison
-# ---------------------------------------------------------------------------
-
-
-def _naive_padded_collate(items_2d):
-    """Naive baseline: pad a list of variable-length lists into a dense numpy array."""
-    max_len = max(len(row) for row in items_2d)
-    out = np.zeros((len(items_2d), max_len), dtype=np.int64)
-    for i, row in enumerate(items_2d):
-        out[i, : len(row)] = row
-    return out
-
-
-def bench_baseline_comparison(results):
-    """Compare NRT vs naive alternatives for collation and serialization."""
-    for label, n in SCALE_CONFIGS:
-        raw_rows = make_2d_raw(n, seed=99)
-
-        # --- Collation: naive padding vs NRT vstack+to_dense ---
-        batch_size = min(n, 64)
-        batch_raw = raw_rows[:batch_size]
-
-        def naive_collate(batch_raw=batch_raw):
-            _naive_padded_collate(batch_raw)
-
-        mean, std, count = _time(naive_collate)
-        results.append(_make_entry(f"Baseline/Collate_NaivePad/{label}", "seconds", mean, std, count))
-
-        # --- Serialization round-trip: NRT vs pickle ---
-        with TemporaryDirectory() as tmpdir:
-            nrt_fp = Path(tmpdir) / "test.nrt"
-
-            def nrt_roundtrip(raw=raw_rows, fp=nrt_fp):
-                j = JointNestedRaggedTensorDict({"val": raw})
-                j.save(fp)
-                loaded = JointNestedRaggedTensorDict(tensors_fp=fp)
-                _ = loaded.tensors
-
-            mean, std, count = _time(nrt_roundtrip)
-            results.append(_make_entry(f"Baseline/Roundtrip_NRT/{label}", "seconds", mean, std, count))
-
-            pkl_fp = Path(tmpdir) / "test.pkl"
-
-            def pkl_roundtrip(raw=raw_rows, fp=pkl_fp):
-                with open(fp, "wb") as f:
-                    pickle.dump(raw, f)
-                with open(fp, "rb") as f:
-                    pickle.load(f)
-
-            mean, std, count = _time(pkl_roundtrip)
-            results.append(_make_entry(f"Baseline/Roundtrip_Pickle/{label}", "seconds", mean, std, count))
-
-
-# ---------------------------------------------------------------------------
 # Test entry point
 # ---------------------------------------------------------------------------
 
@@ -288,7 +226,11 @@ def test_micro_benchmarks():
     """Run all micro-benchmarks and write the combined output."""
     results = []
 
-    # Tier 1A: Core operations
+    # Core NRT operations. The previous "Baseline" tier (naive numpy padded collate, pickle
+    # round-trip, and a duplicate NRT round-trip) was removed after a pickle-timing alert made
+    # it clear those entries measured pure stdlib/numpy work unaffected by any change in this
+    # repo — they produced runner-variance false alerts without providing a useful signal.
+    # Save/load regressions are still covered by bench_save_load.
     bench_getitem_int(results)
     bench_getitem_slice(results)
     bench_to_dense_1d(results)
@@ -298,9 +240,6 @@ def test_micro_benchmarks():
     bench_concatenate(results)
     bench_save_load(results)
     bench_multikey(results)
-
-    # Tier 2D: Baseline comparison
-    bench_baseline_comparison(results)
 
     output_fp = OUTPUT_DIR / "micro.json"
     output_fp.parent.mkdir(parents=True, exist_ok=True)
