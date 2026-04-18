@@ -234,7 +234,8 @@ class JointNestedRaggedTensorDict:
             ``keys=`` restricts which user-level keys are loaded from ``tensors_fp``. The
             resulting object behaves like a normal ``JointNestedRaggedTensorDict`` for
             operations that only reference the requested keys, but the unselected tensors
-            are never read from disk.
+            are never read from disk. Without ``keys=``, every user-level key stored in the
+            file is exposed:
 
             >>> with tempfile.TemporaryDirectory() as dirpath:
             ...     fp = Path(dirpath) / "tensors.nrt"
@@ -243,14 +244,18 @@ class JointNestedRaggedTensorDict:
             ...         "id":  [[[1, 2,   3], [3,   4], [1, 2  ]], [[3], [3,   2, 2]]],
             ...         "val": [[[1, 0.2, 0], [3.1, 0], [1, 2.2]], [[3], [3.3, 2, 0]]],
             ...     }).save(fp)
+            ...     full = JointNestedRaggedTensorDict(tensors_fp=fp)
             ...     subset = JointNestedRaggedTensorDict(tensors_fp=fp, keys={"T", "id"})
+            ...     assert full.keys() == {"T", "id", "val"}
             ...     assert subset.keys() == {"T", "id"}
             ...     subset[1].to_dense()["T"]
             array([4, 5], dtype=uint8)
 
             Only the ``dim*/bounds`` entries up to the deepest requested key are loaded; deeper
             bounds are skipped, so ``max_n_dims`` reflects the loaded subset rather than the
-            on-disk shape.
+            on-disk shape. Attempting to read a non-selected key via the internal lazy-read path
+            raises ``KeyError`` so that the subset contract is enforced rather than silently
+            bypassed.
 
             >>> with tempfile.TemporaryDirectory() as dirpath:
             ...     fp = Path(dirpath) / "tensors.nrt"
@@ -261,6 +266,19 @@ class JointNestedRaggedTensorDict:
             ...     shallow = JointNestedRaggedTensorDict(tensors_fp=fp, keys={"T"})
             ...     shallow.max_n_dims
             2
+            >>> with tempfile.TemporaryDirectory() as dirpath:
+            ...     fp = Path(dirpath) / "tensors.nrt"
+            ...     JointNestedRaggedTensorDict({
+            ...         "T":  [[1, 2, 3], [4, 5]],
+            ...         "id": [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+            ...     }).save(fp)
+            ...     shallow = JointNestedRaggedTensorDict(tensors_fp=fp, keys={"T"})
+            ...     with shallow._tensor_at_key("dim2/id"):
+            ...         pass
+            ... # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+                ...
+            KeyError: "Key 'dim2/id' is not part of the loaded subset [...]."
 
             Requesting a key that does not exist in the file raises a clear error.
 
@@ -371,12 +389,13 @@ class JointNestedRaggedTensorDict:
         """
         if isinstance(keys, (str, bytes)):
             raise TypeError("`keys` must be an iterable of strings, not a bare str/bytes.")
-        requested = set(keys)
-        if not requested:
+        requested_list = list(keys)
+        if not requested_list:
             raise ValueError("`keys` must be non-empty.")
-        bad_types = sorted({type(k).__name__ for k in requested if not isinstance(k, str)})
+        bad_types = sorted({type(k).__name__ for k in requested_list if not isinstance(k, str)})
         if bad_types:
             raise TypeError(f"`keys` must contain only strings; got elements of type {bad_types}.")
+        requested = set(requested_list)
         reserved = requested & set(JointNestedRaggedTensorDict._RESERVED_SUBSET_NAMES)
         if reserved:
             raise ValueError(
@@ -549,6 +568,8 @@ class JointNestedRaggedTensorDict:
 
     @contextmanager
     def _tensor_at_key(self, key: str):
+        if self._subset_keys is not None and key not in self._subset_keys:
+            raise KeyError(f"Key {key!r} is not part of the loaded subset {sorted(self._subset_keys)}.")
         if self._tensors is None:
             with safe_open(self._tensors_fp, framework="np") as f:
                 yield f.get_slice(key)

@@ -24,7 +24,7 @@ jobs:
 
       - name: Run benchmark
         run: |
-          uv run pytest benchmark/run.py
+          uv run pytest benchmark/run.py benchmark/run_micro.py
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
@@ -32,6 +32,18 @@ jobs:
           name: Benchmark
           tool: "customSmallerIsBetter"
           output-file-path: benchmark/outputs/output_256_512_5.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+
+      - name: Store micro-benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Micro-Benchmark
+          tool: "customSmallerIsBetter"
+          output-file-path: benchmark/outputs/micro.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
           alert-threshold: "150%"

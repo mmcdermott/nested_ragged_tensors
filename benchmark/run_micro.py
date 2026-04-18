@@ -4,7 +4,11 @@ These benchmarks use synthetic data (no sample_dataset dependency) and measure i
 isolation so regressions are directly attributable.
 
 Output format is the same customSmallerIsBetter JSON consumed by github-action-benchmark, written to
-benchmark/outputs/micro.json.
+``benchmark/outputs/micro.json``. Run via the dedicated benchmark workflow (which installs the
+``benchmarks`` dependency group that provides ``rootutils``) or locally with
+``uv run pytest benchmark/run_micro.py`` after installing that group. Like ``benchmark/run.py``, this
+module is not collected by the main test suite (``tests.yaml`` uses ``--ignore=benchmark``) and is named
+without the ``test_`` prefix so bare ``pytest`` in the repo root does not auto-collect it either.
 """
 
 import json
