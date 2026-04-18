@@ -16,7 +16,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = ["safetensors", "numpy"]
+dependencies = ["safetensors>=0.3.1", "numpy>=1.21"]
 
 [dependency-groups]
 dev = ["pre-commit<4", "ruff", "pytest", "pytest-cov"]
