@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776510805149,
+  "lastUpdate": 1776510806577,
   "repoUrl": "https://github.com/mmcdermott/nested_ragged_tensors",
   "entries": {
     "Benchmark": [
@@ -13534,6 +13534,299 @@ window.BENCHMARK_DATA = {
             "name": "Baseline/Roundtrip_Pickle/large",
             "value": 0.11235054500000388,
             "range": "0.2056460396180879",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "mmcdermott",
+            "username": "mmcdermott"
+          },
+          "committer": {
+            "name": "mmcdermott",
+            "username": "mmcdermott"
+          },
+          "id": "138200e9a8b610a32a056558c4bc6d49cb36c1ac",
+          "message": "Allows loading a subset of keys and an equality checker that supports equals_nan",
+          "timestamp": "2026-04-16T22:06:10Z",
+          "url": "https://github.com/mmcdermott/nested_ragged_tensors/pull/65/commits/138200e9a8b610a32a056558c4bc6d49cb36c1ac"
+        },
+        "date": 1776510806053,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "CoreOps/GetItem_Int/small",
+            "value": 0.000026246018000108507,
+            "range": "0.0000011427388756949513",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/medium",
+            "value": 0.000025750333999980057,
+            "range": "2.4081757983513686e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/large",
+            "value": 0.00002523267799998052,
+            "range": "4.445514442318508e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/small",
+            "value": 0.00002595280000150524,
+            "range": "0.000009710988881367393",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/medium",
+            "value": 0.00002606319999358675,
+            "range": "0.00000901708105297509",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/large",
+            "value": 0.00003337080000846982,
+            "range": "0.00002398496172649272",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/small",
+            "value": 0.00001445340000145734,
+            "range": "0.00001667810838201976",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/medium",
+            "value": 0.000007039199999780976,
+            "range": "0.0000031204919133821654",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/large",
+            "value": 0.000007668399990734543,
+            "range": "0.000004047304080072441",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/small",
+            "value": 0.00025662019999685983,
+            "range": "0.00001796740300186108",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/medium",
+            "value": 0.002217355599992743,
+            "range": "0.000041038382658654094",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/large",
+            "value": 0.03266562920000524,
+            "range": "0.023152272365377848",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/small",
+            "value": 0.001378962599994793,
+            "range": "0.00003409513600413933",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/medium",
+            "value": 0.024315260600002376,
+            "range": "0.023223337135866814",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/large",
+            "value": 0.23722915339999417,
+            "range": "0.024323454395834162",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch16",
+            "value": 0.00043293440000411463,
+            "range": "0.00003864600856971389",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch64",
+            "value": 0.0015246534000084467,
+            "range": "0.00004543527063621671",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch256",
+            "value": 0.006047215600000299,
+            "range": "0.00020456352262300672",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/small",
+            "value": 0.000060516000002053263,
+            "range": "0.000012692903763286945",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/medium",
+            "value": 0.00006102680000594773,
+            "range": "0.000013815042313440948",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/large",
+            "value": 0.00009543400000211477,
+            "range": "0.000036067386153531845",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/small",
+            "value": 0.000202515799998082,
+            "range": "0.00008109493032536966",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/small",
+            "value": 0.000058147600003621844,
+            "range": "0.000029282976256982778",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/medium",
+            "value": 0.0002490194000017709,
+            "range": "0.00014442870079783938",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/medium",
+            "value": 0.00005976279999799772,
+            "range": "0.000014264923165187092",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/large",
+            "value": 0.0004948472000023685,
+            "range": "0.00021190081095914497",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/large",
+            "value": 0.00010408040000129404,
+            "range": "0.0000404886853287988",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/small",
+            "value": 0.0005583307999927456,
+            "range": "0.0000241990579394022",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/medium",
+            "value": 0.004969345800009251,
+            "range": "0.00007648172556621941",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/large",
+            "value": 0.06021852579999063,
+            "range": "0.024497604317509403",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/small",
+            "value": 0.00007214599999656457,
+            "range": "0.000006103760657632751",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/small",
+            "value": 0.001915456599999743,
+            "range": "0.00007623918420385108",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/small",
+            "value": 0.0003306857999973545,
+            "range": "0.00011700520190150822",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/medium",
+            "value": 0.00007323799999312542,
+            "range": "0.0000111578746611675",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/medium",
+            "value": 0.01684658080000645,
+            "range": "0.0002808189053916364",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/medium",
+            "value": 0.0010930393999956322,
+            "range": "0.000051307017810298716",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Collate_NaivePad/large",
+            "value": 0.00007190559999799006,
+            "range": "0.000005347935693607892",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_NRT/large",
+            "value": 0.1640407648000007,
+            "range": "0.002153281022673967",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Baseline/Roundtrip_Pickle/large",
+            "value": 0.01002701799999386,
+            "range": "0.0005065434097336062",
             "unit": "seconds",
             "extra": "Count: 5"
           }
