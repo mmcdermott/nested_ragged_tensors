@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776513318426,
+  "lastUpdate": 1776513319709,
   "repoUrl": "https://github.com/mmcdermott/nested_ragged_tensors",
   "entries": {
     "Benchmark": [
@@ -14708,6 +14708,240 @@ window.BENCHMARK_DATA = {
             "name": "CoreOps/ToDense_MultiKey/large",
             "value": 0.06549839820002035,
             "range": "0.031217274445632482",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mattmcdermott8@gmail.com",
+            "name": "Matthew McDermott",
+            "username": "mmcdermott"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dfc10149d5ad21b0569189c70096e2e88e10c58a",
+          "message": "Allows loading a subset of keys and an equality checker that supports equals_nan (#65)\n\n* Allow loading a subset of keys from a JNRT tensors_fp (#60) (#62)\n\n* Fix CI: pin pre-commit deps and emit coverage XML for Codecov (#61)\n\nPre-commit's mdformat hook was failing on main because the unpinned\nmdformat-mkdocs additional dependency resolved to a version that tried\nto import `zip_equal` from a newer more_itertools release that no\nlonger exports it. Pin all mdformat additional_dependencies to known\ncompatible versions and bump mdformat rev to 0.7.22.\n\nTests were running with `--cov=src` but never emitted a coverage.xml,\nso the codecov action reported \"Found 0 coverage files\" and marked the\nstatus unknown. Add `--cov-report=xml` and point the action at\ncoverage.xml.\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Allow loading a subset of keys from a JNRT tensors_fp (#60)\n\nDownstream consumers frequently know up front which dynamic fields\nthey will actually use from a batch. Expose a `keys=` argument on\n`JointNestedRaggedTensorDict.__init__` that, when paired with\n`tensors_fp=`, restricts which user-level keys are read from the\nbacking safetensors archive. The per-dim `bounds` entries required\nfor slicing and dense reconstruction are always kept.\n\nMissing keys raise a KeyError listing what is actually available.\nPassing `keys=` without `tensors_fp=` raises ValueError. No changes\nto __getitem__, to_dense, vstack, concatenate, slicing, or the\nraw_tensors/processed_tensors construction paths.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Collapse split f-string to satisfy black\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Only load bounds up to the deepest requested dim\n\nPreviously `_load_subset` eagerly loaded every `dim*/bounds` entry in\nthe archive regardless of which user keys were requested. For deep\nragged structures this defeats the I/O savings the subset load is\nmeant to provide, since higher-dim bounds can be larger than the\nleaf data itself. Track the max requested key dim and only pull the\n`dim*/bounds` entries at or below that depth — the deeper bounds are\nnever referenced by operations that only touch the loaded keys.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Add .equals() with equal_nan support, keep __eq__ IEEE-faithful (#64)\n\nAdds a configurable JointNestedRaggedTensorDict.equals(other, equal_nan=...)\nmethod so callers can opt into treating NaN as equal to itself (useful for\nsave/load roundtrips where NaN is a sentinel value). __eq__ delegates to\n.equals() with equal_nan=False, preserving IEEE 754 semantics as the default\nbehavior of the == operator.\n\nCloses #63.\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Add micro-benchmarks and baseline comparisons for core NRT operations (#58)\n\nMicro-benchmarks for individual operations with synthetic data:\n- __getitem__ (int index and slice) at 3 scales (100/1k/10k)\n- to_dense() for 1D, 2D, 3D ragged tensors at 3 scales\n- vstack() + to_dense() collation path at 3 batch sizes (16/64/256)\n- concatenate() at 3 scales\n- save/load round-trip at 3 scales\n- to_dense() with multiple keys sharing bounds at 3 scales\n\nBaseline comparisons:\n- NRT collation vs naive list-of-lists padding\n- NRT save/load round-trip vs pickle round-trip\n\nAll benchmarks use synthetic data (no sample_dataset dependency) and\noutput in the customSmallerIsBetter JSON format for github-action-benchmark.\n\nRef: #55\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Make keys= subset load truly lazy (#66)\n\n* Make keys= subset load truly lazy\n\nPreviously, passing keys= to JointNestedRaggedTensorDict(tensors_fp=...) called\nf.get_tensor(k) for every selected key during __init__ and stashed the result\nas self._tensors. That made the subset strictly smaller than the full file,\nbut every selected tensor was still eagerly materialized into memory at\nconstruction time — defeating the main motivation of the feature for callers\nthat only iterate one subset key at a time.\n\nThis commit restores laziness:\n  - __init__ now calls _resolve_subset_keys, which opens the file only for\n    metadata (safe_open + .keys()) to validate requested keys and pick the\n    required dim*/bounds entries. No tensor values are read.\n  - The resolved set is stored on self._subset_keys; self._tensors stays None.\n  - _tensor_keys returns the subset when _subset_keys is set.\n  - _tensor_at_key (already lazy via safe_open) now reads only when callers\n    ask for a specific tensor.\n  - The .tensors property (the one materializer left) loads just the subset\n    via safe_open + get_tensor when _subset_keys is set, rather than\n    load_file'ing the whole archive.\n\nAlso addresses two Copilot review points on #60:\n  - keys=<str|bytes> now raises TypeError instead of silently iterating\n    character-by-character.\n  - keys=[] (or any empty iterable) now raises ValueError instead of\n    returning an object with no usable tensors.\n\nDoctests cover the new validation errors and the lazy-read path.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Cover subset branch of .tensors property with a doctest\n\nThe lazy subset load only hits the materialization path if something\neventually touches .tensors. The prior doctests all went through the\nlazy _tensor_at_key path, leaving the subset branch of the property\nuncovered (codecov/patch failure on #66).\n\nAdds a short doctest that forces materialization on a subset-loaded\ninstance and also documents the property's behavior.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Deterministic subset order + reject non-str/reserved keys\n\nAddresses PR #66 review feedback:\n\n  - (mmcdermott on Copilot's order comment) Subset materialization\n    previously iterated `self._subset_keys` as a `set`, making dict\n    insertion order depend on set-hash randomization. Now\n    `_resolve_subset_keys` returns a `list` in the archive's raw\n    storage order (as reported by `safe_open().keys()`), so\n    materializing a subset gives the same deterministic order on every\n    run. Doctest on `.tensors` pins the order.\n\n  - (Copilot) `_resolve_subset_keys` now rejects non-str elements with\n    a clear `TypeError` and rejects the reserved meta-names `bounds`\n    and `mask` (defined here as `_RESERVED_SUBSET_NAMES`) with a clear\n    `ValueError`, instead of silently producing an object with no\n    usable user tensors. Doctests cover both rejections.\n\nNote: the user asked whether the subset order could match a full\n`load_file` default. `safe_open().keys()` and `load_file()` actually\nreturn different orders on the same file (load_file groups meta keys\nfirst), and matching load_file order would require eagerly reading\nevery tensor, which defeats the lazy subset load. Using safe_open's\nfile-metadata order keeps the load lazy while still being deterministic\nand tied to the archive, which is the spirit of the ask.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Clarify subset order docstring and exclude mask from KeyError hint\n\nAddresses two further Copilot nits on PR #66:\n\n  - _resolve_subset_keys docstring previously said the returned list\n    \"produces the same iteration order as a full load_file\" — which is\n    not actually true on this file format (safe_open and load_file\n    return different orders). Rewritten to name safe_open().keys() as\n    the source of determinism and note the load_file divergence\n    explicitly.\n\n  - The KeyError raised for missing keys listed all user-visible names\n    but excluded only 'bounds', so a file with a 'mask' meta-key would\n    surface 'mask' as if it were selectable. Now filters using the\n    shared _RESERVED_SUBSET_NAMES tuple, so the hint matches what the\n    rejection logic above actually accepts.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Address PR #65 review feedback (validation order, subset guard, benchmark gating, baseline doctest) (#67)\n\n* Address PR #65 review feedback\n\nBatch of follow-ups on dev before it cuts a release to main:\n\n  - _resolve_subset_keys now materializes keys= into a list and\n    validates element types before set(...) construction. Fixes a case\n    where passing a non-hashable non-str (e.g. a list by mistake) would\n    surface a generic \"unhashable type\" TypeError instead of the\n    intended element-type validation error.\n\n  - _tensor_at_key now explicitly rejects any key that isn't in the\n    loaded subset when a subset is active. Previously the safe_open\n    path would silently return data for unselected keys, quietly\n    violating the subset contract. Now a caller that asks for a\n    non-selected key gets a KeyError pointing at the loaded subset.\n\n  - Add a baseline side-by-side doctest contrasting a default load\n    (all keys visible) with a subset load (only requested keys), so\n    the feature's effect is obvious at a glance from the docstring.\n\n  - benchmark/test_micro.py is now opt-in. Setting\n    NRT_RUN_BENCHMARKS=1 enables collection; otherwise the module\n    skips at import time. rootutils is now imported via\n    pytest.importorskip, and the output directory is configurable via\n    NRT_BENCHMARK_OUTPUT_DIR. Previously, running bare `pytest`\n    locally would collect test_micro_benchmarks(), which could fail at\n    import time on machines without rootutils installed or would run\n    the full benchmark suite and write into benchmark/outputs.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Wire micro benchmarks into the benchmark workflow\n\nRevert the env-var / importorskip gating added in the previous commit.\nThe real problem with test_micro.py was just that the file name started\nwith `test_`, which makes bare pytest auto-collect it. The existing\nbenchmark/run.py avoids that simply by not starting with `test_` — it's\nstill a pytest target when explicitly pointed at the file, just not\nauto-collected. Matching that convention is the right fix, not adding\nan opt-in env var.\n\n  - Renamed benchmark/test_micro.py -> benchmark/run_micro.py to match\n    benchmark/run.py's convention. The test function inside is\n    unchanged and is still discovered when the file is named on the\n    pytest command line, so the benchmark workflow can run it the\n    same way it runs run.py.\n\n  - Dropped the NRT_RUN_BENCHMARKS env-var skip and the\n    pytest.importorskip(\"rootutils\") — the benchmark workflow installs\n    the `benchmarks` dependency group which provides rootutils, just\n    like it does for run.py. Back to a plain top-level\n    `import rootutils`.\n\n  - .github/workflows/benchmark.yaml now runs both benchmark/run.py\n    and benchmark/run_micro.py in its pytest invocation, and posts\n    benchmark/outputs/micro.json as a second github-action-benchmark\n    chart (\"Micro-Benchmark\") so the micro results are actually\n    tracked over time instead of being written and discarded.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Drop noise-prone Baseline tier from micro benchmarks\n\nThe Baseline tier contained three entries that turned out to be either\nrunner-variance noise or redundant with better-structured core-op\nbenchmarks:\n\n  - Baseline/Roundtrip_Pickle — pure pickle.dump/load on Python lists,\n    no NRT code runs. Just tripped the 150% alert threshold in CI\n    (1.72x slower vs. prior run on small scale) with no NRT change\n    responsible. Any future alert here would be equally meaningless.\n\n  - Baseline/Collate_NaivePad — pure numpy.zeros + Python-loop\n    padding, no NRT code runs. Same class of false-alert risk as\n    pickle; its timings reflect runner load and numpy/Python version,\n    not anything in this repo.\n\n  - Baseline/Roundtrip_NRT — duplicates CoreOps/Save + CoreOps/Load\n    from bench_save_load, which already tracks save and load timings\n    separately across small/medium/large scales. No signal lost by\n    removing this entry.\n\nAlso drops the now-unused _naive_padded_collate helper, make_2d_raw\ngenerator, and the pickle import. test_micro_benchmarks now only\ndispatches the Core NRT ops. A comment in the dispatcher records why\nthe Baseline tier was removed so the next maintainer doesn't try to\nre-add it by reflex.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Pin numpy>=1.21 for np.array_equal(equal_nan=...) support\n\nJointNestedRaggedTensorDict.equals uses np.array_equal(..., equal_nan=...),\nwhich was added in NumPy 1.19 (June 2020). Without a floor on the numpy\ndep, installs on older NumPy would break at runtime with \"unexpected\nkeyword argument 'equal_nan'\". Since requires-python is >=3.10 and NumPy\n1.21 is the first release with Python 3.10 wheels (and also has the\nequal_nan feature), numpy>=1.21 is the loosest honest floor — pinning\nlower would be misleading because <1.21 can't install on 3.10 anyway.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Pin safetensors>=0.3.1 and refresh uv.lock\n\nFollow-up to the numpy floor pin: also records an honest floor for\nsafetensors. All safetensors APIs this package uses (safe_open with\nframework=\"np\", get_tensor, get_slice, keys, plus safetensors.numpy\nload_file / save_file) have been stable since the 0.3.x series, with\n0.3.1 being the first release where that surface was reliably usable.\nPinning >=0.3.1 makes the tested-against floor explicit — there's no\ngood reason to leave it unpinned, and a documented floor is strictly\nmore useful than an implicit one.\n\nAlso refreshes uv.lock so `uv sync --locked` in CI matches the updated\npyproject.toml (the numpy pin in the previous commit left the lockfile\nout of sync, which was the cause of the CI failure).\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-18T07:54:18-04:00",
+          "tree_id": "8d2c09a1e9fa7d53a262700f973f793e2d78722a",
+          "url": "https://github.com/mmcdermott/nested_ragged_tensors/commit/dfc10149d5ad21b0569189c70096e2e88e10c58a"
+        },
+        "date": 1776513319313,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "CoreOps/GetItem_Int/small",
+            "value": 0.000026683441999978188,
+            "range": "0.0000010143656595096072",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/medium",
+            "value": 0.00002568457199998875,
+            "range": "4.4009147828628055e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/large",
+            "value": 0.00002606716499997219,
+            "range": "7.808402318312767e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/small",
+            "value": 0.000027132600013146658,
+            "range": "0.00001116951696892145",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/medium",
+            "value": 0.000029733199994552706,
+            "range": "0.00001706376108739452",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/large",
+            "value": 0.0000359128000070541,
+            "range": "0.000026166555396548186",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/small",
+            "value": 0.000011058599994839824,
+            "range": "0.000008931203685975719",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/medium",
+            "value": 0.0000073236000048382264,
+            "range": "0.000003484239205729256",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/large",
+            "value": 0.000007710400001315066,
+            "range": "0.000004056914873072054",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/small",
+            "value": 0.0002699169999971218,
+            "range": "0.000021420363450563247",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/medium",
+            "value": 0.0023215847999949802,
+            "range": "0.000036151188064344195",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/large",
+            "value": 0.03491229560000875,
+            "range": "0.025800788961448034",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/small",
+            "value": 0.001446893000002092,
+            "range": "0.00003646685652741091",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/medium",
+            "value": 0.024853926599996613,
+            "range": "0.023025509794855317",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/large",
+            "value": 0.2470850606000056,
+            "range": "0.024307111496345346",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch16",
+            "value": 0.00044697260000248207,
+            "range": "0.00004242979486474373",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch64",
+            "value": 0.00159091120000312,
+            "range": "0.00004974833022057258",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch256",
+            "value": 0.006250759400001016,
+            "range": "0.00015549118808567207",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/small",
+            "value": 0.00005751680000116721,
+            "range": "0.000012755870776327301",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/medium",
+            "value": 0.00006307120000883514,
+            "range": "0.000014283256995702755",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/large",
+            "value": 0.00010268699999755881,
+            "range": "0.000020092435744154924",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/small",
+            "value": 0.00021587619999650088,
+            "range": "0.0000855115803512322",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/small",
+            "value": 0.00007364100000586404,
+            "range": "0.00004971994533862808",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/medium",
+            "value": 0.0002409926000041196,
+            "range": "0.0001227894606495257",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/medium",
+            "value": 0.00006986999999867294,
+            "range": "0.000025599024613419613",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/large",
+            "value": 0.00047475440000539494,
+            "range": "0.0001751083401771506",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/large",
+            "value": 0.00010218439999221118,
+            "range": "0.000026318698067575188",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/small",
+            "value": 0.0005815894000022581,
+            "range": "0.00002758991828003111",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/medium",
+            "value": 0.0051905159999932945,
+            "range": "0.000050961277648396274",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/large",
+            "value": 0.06374331500000494,
+            "range": "0.02597791656850752",
             "unit": "seconds",
             "extra": "Count: 5"
           }
