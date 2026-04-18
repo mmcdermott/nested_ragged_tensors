@@ -942,8 +942,8 @@ requires-dist = [
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5.31" },
     { name = "mkdocs-section-index", marker = "extra == 'docs'", specifier = ">=0.3.9" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.26" },
-    { name = "numpy" },
-    { name = "safetensors" },
+    { name = "numpy", specifier = ">=1.21" },
+    { name = "safetensors", specifier = ">=0.3.1" },
 ]
 provides-extras = ["docs"]
 
