@@ -3,37 +3,27 @@
 These benchmarks use synthetic data (no sample_dataset dependency) and measure individual operations in
 isolation so regressions are directly attributable.
 
-Output format is the same customSmallerIsBetter JSON consumed by github-action-benchmark. Benchmarks are
-opt-in: set ``NRT_RUN_BENCHMARKS=1`` to collect them. By default, results are written to
-``benchmark/outputs/micro.json``; override with ``NRT_BENCHMARK_OUTPUT_DIR``. CI drives this via the
-explicit benchmark workflow (which passes the env var) rather than generic ``pytest`` runs.
+Output format is the same customSmallerIsBetter JSON consumed by github-action-benchmark, written to
+``benchmark/outputs/micro.json``. Run via the dedicated benchmark workflow (which installs the
+``benchmarks`` dependency group that provides ``rootutils``) or locally with
+``uv run pytest benchmark/run_micro.py`` after installing that group. Like ``benchmark/run.py``, this
+module is not collected by the main test suite (``tests.yaml`` uses ``--ignore=benchmark``) and is named
+without the ``test_`` prefix so bare ``pytest`` in the repo root does not auto-collect it either.
 """
 
 import json
-import os
 import pickle
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
-import pytest
+import rootutils
 
-if os.environ.get("NRT_RUN_BENCHMARKS") != "1":
-    pytest.skip(
-        "Micro-benchmarks are opt-in. Set NRT_RUN_BENCHMARKS=1 to enable them.",
-        allow_module_level=True,
-    )
-
-rootutils = pytest.importorskip(
-    "rootutils",
-    reason="Micro-benchmarks require the optional `rootutils` dependency.",
-)
-
-from nested_ragged_tensors.ragged_numpy import JointNestedRaggedTensorDict  # noqa: E402
+from nested_ragged_tensors.ragged_numpy import JointNestedRaggedTensorDict
 
 root = rootutils.setup_root(__file__, dotenv=True, pythonpath=True, cwd=False)
-OUTPUT_DIR = Path(os.environ.get("NRT_BENCHMARK_OUTPUT_DIR", root / "benchmark" / "outputs"))
+OUTPUT_DIR = root / "benchmark" / "outputs"
 
 # ---------------------------------------------------------------------------
 # Helpers
