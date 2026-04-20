@@ -15,7 +15,7 @@ NP_FLOAT_TYPES = (np.float16, np.float32, np.float64)
 NP_INT_TYPES = (np.int8, np.int16, np.int32, np.int64)
 NP_UINT_TYPES = (np.uint8, np.uint16, np.uint32, np.uint64)
 
-NUM_T = int | float
+NUM_T = int | float | bool | np.integer | np.floating
 NUM_LIST_T = list[NUM_T]
 NESTED_NUM_LIST_T = NUM_LIST_T
 NESTED_NUM_LIST_T = list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T
@@ -665,7 +665,7 @@ class JointNestedRaggedTensorDict:
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128, "foo"])
             Traceback (most recent call last):
                 ...
-            ValueError: Vals are neither all floats or all ints
+            ValueError: Vals must all be ints, floats, or bools
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 40000000000000000000, -40000000000000000000])
             Traceback (most recent call last):
                 ...
@@ -716,7 +716,7 @@ class JointNestedRaggedTensorDict:
             >>> JointNestedRaggedTensorDict._infer_dtype([1, None])
             Traceback (most recent call last):
                 ...
-            ValueError: Vals are neither all floats or all ints
+            ValueError: Vals must all be ints, floats, or bools
 
             Float + Python int too large to represent in float64:
 
@@ -752,7 +752,7 @@ class JointNestedRaggedTensorDict:
             if not all(
                 isinstance(v, (int, float, *NP_INT_TYPES, *NP_UINT_TYPES, *NP_FLOAT_TYPES)) for v in vals
             ):
-                raise ValueError("Vals are neither all floats or all ints")
+                raise ValueError("Vals must all be ints, floats, or bools")
             if any(isinstance(v, (float, *NP_FLOAT_TYPES)) for v in vals):
                 try:
                     arr = np.asarray(vals, dtype=np.float64)
@@ -802,7 +802,7 @@ class JointNestedRaggedTensorDict:
             # which are always in the candidate set — defensive guard only.
             raise ValueError(f"No valid type available for {mn} - {mx}!")  # pragma: no cover
 
-        raise ValueError("Vals are neither all floats or all ints")
+        raise ValueError("Vals must all be ints, floats, or bools")
 
     def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T]):
         """Initializes the tensors from lists of raw data entries."""
