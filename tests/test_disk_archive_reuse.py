@@ -99,6 +99,18 @@ def test_cached_len_is_consistent_before_and_after_getitem(disk_jnrt):
     assert len_before == len_after == 20  # fixture has 20 rows
 
 
+def test_direct_len_opens_archive_at_most_once(disk_jnrt):
+    """``len(J_disk)`` on its own should not spawn a nested ``safe_open`` via ``max_n_dims`` →
+    ``_tensor_keys``.
+
+    Regression guard: the priming inside
+    ``__len__`` must happen before the ``max_n_dims`` access.
+    """
+    J = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    count = _count_safe_open(lambda: len(J))
+    assert count <= 1
+
+
 def test_cached_len_is_consistent_across_load_modes(disk_jnrt):
     """Full-load and subset-load JNRTs on the same file must report the same length at dim 0.
 

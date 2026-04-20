@@ -1775,6 +1775,14 @@ class JointNestedRaggedTensorDict:
             return self.__dict__["_cached_len"]
         if self._tensors is None:
             with safe_open(self._tensors_fp, framework="np") as f:
+                # Prime _tensor_keys from this handle so the max_n_dims access
+                # below doesn't spawn a nested safe_open via _tensor_keys'
+                # cached_property. Mirrors the priming in _archive_ctx.
+                if "_tensor_keys" not in self.__dict__:
+                    if self._subset_keys is not None:
+                        self.__dict__["_tensor_keys"] = set(self._subset_keys)
+                    else:
+                        self.__dict__["_tensor_keys"] = set(f.keys())
                 if self.max_n_dims == 1:
                     k = next(iter(self._tensor_keys))
                     n = f.get_slice(k).get_shape()[0]
