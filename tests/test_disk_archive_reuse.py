@@ -1,0 +1,128 @@
+"""Regression test for #70: disk-backed __getitem__ should make at most one ``safe_open`` call per logical
+operation.
+
+Wall-clock timings alone don't catch a regression here (filesystem mmap is cheap
+enough that an extra syscall or two is lost in noise), so we instrument the
+module-level ``safe_open`` binding with a counter.
+"""
+
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+import numpy as np
+import pytest
+
+import nested_ragged_tensors.ragged_numpy as rn
+from nested_ragged_tensors.ragged_numpy import JointNestedRaggedTensorDict
+
+
+@pytest.fixture
+def disk_jnrt():
+    rng = np.random.default_rng(0)
+    rows = [list(range(int(rng.integers(10, 50)))) for _ in range(20)]
+    J = JointNestedRaggedTensorDict({"val_a": rows, "val_b": rows})
+    with tempfile.TemporaryDirectory() as td:
+        fp = Path(td) / "t.nrt"
+        J.save(fp)
+        yield fp
+
+
+def _count_safe_open(fn):
+    """Run ``fn`` with ``safe_open`` patched to count calls; return the count."""
+    n = [0]
+    orig = rn.safe_open
+
+    def counting(*a, **k):
+        n[0] += 1
+        return orig(*a, **k)
+
+    with patch.object(rn, "safe_open", counting):
+        fn()
+    return n[0]
+
+
+@pytest.mark.parametrize(
+    "access_desc,access_fn",
+    [
+        ("int_index", lambda J: J[0]),
+        ("slice", lambda J: J[0:3]),
+        ("ndarray", lambda J: J[np.array([0, 1, 2])]),
+        ("tuple", lambda J: J[0, :5]),
+    ],
+)
+def test_getitem_opens_archive_at_most_once(disk_jnrt, access_desc, access_fn):
+    """Every access style should coalesce to <=1 safe_open call."""
+    J = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    # Warm any one-time caches by running the access once before measuring.
+    access_fn(J)
+    count = _count_safe_open(lambda: access_fn(J))
+    assert count <= 1, f"{access_desc} made {count} safe_open calls, expected <= 1"
+
+
+def test_in_memory_access_makes_no_safe_open_call(disk_jnrt):
+    """After forcing .tensors to load, __getitem__ should never touch the filesystem."""
+    J = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    _ = J.tensors
+    count = _count_safe_open(lambda: J[0])
+    assert count == 0
+
+
+def test_subset_load_access_coalesces_safe_open(disk_jnrt):
+    """Subset-loaded instances also honor the one-open-per-access contract."""
+    J = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt, keys={"val_a"})
+    J[0]  # warm caches
+    count = _count_safe_open(lambda: J[0])
+    assert count <= 1
+
+
+def test_1d_disk_access_primes_cached_len():
+    """1D JNRTs take a different ``_archive_ctx`` priming branch (no dim1/bounds)."""
+    with tempfile.TemporaryDirectory() as td:
+        fp = Path(td) / "t.nrt"
+        JointNestedRaggedTensorDict({"T": list(range(50))}).save(fp)
+        J = JointNestedRaggedTensorDict(tensors_fp=fp)
+        J[0]  # warm
+        count = _count_safe_open(lambda: J[0])
+        assert count <= 1
+
+
+def test_cached_len_is_consistent_before_and_after_getitem(disk_jnrt):
+    """``len(J)`` must be identical before and after ``__getitem__`` triggers ``_cached_len`` priming.
+
+    Belt-and-suspenders guard against a future change accidentally populating the cache with a wrong value.
+    """
+    J = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    len_before = len(J)
+    _ = J[0]  # enters _archive_ctx which primes _cached_len
+    len_after = len(J)
+    assert len_before == len_after == 20  # fixture has 20 rows
+
+
+def test_direct_len_opens_archive_at_most_once(disk_jnrt):
+    """``len(J_disk)`` on its own should not spawn a nested ``safe_open`` via ``max_n_dims`` →
+    ``_tensor_keys``.
+
+    Regression guard: the priming inside
+    ``__len__`` must happen before the ``max_n_dims`` access.
+    """
+    J = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    count = _count_safe_open(lambda: len(J))
+    assert count <= 1
+
+
+def test_cached_len_is_consistent_across_load_modes(disk_jnrt):
+    """Full-load and subset-load JNRTs on the same file must report the same length at dim 0.
+
+    Primed ``_cached_len`` values must agree with freshly-computed values
+    from a direct-len path.
+    """
+    J_full = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    J_sub = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt, keys={"val_a"})
+    J_mem = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    _ = J_mem.tensors  # force in-memory load — different len() code path
+    assert len(J_full) == len(J_sub) == len(J_mem) == 20
+    # And priming via __getitem__ doesn't change the answer for any load mode.
+    for J in (J_full, J_sub, J_mem):
+        J[0]
+        assert len(J) == 20
