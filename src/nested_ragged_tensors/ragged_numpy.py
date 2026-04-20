@@ -135,7 +135,10 @@ def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
         case np.ndarray():
             return L.ndim == dim
         case list() if dim == 1:
-            return all(isinstance(x, (int, float)) for x in L)
+            # Accept the same scalar set that NUM_T declares: Python int/float/bool
+            # plus numpy integer / floating / bool scalars. bool is a subclass of int
+            # at runtime, so listing it is for type-checker clarity only.
+            return all(isinstance(x, (int, float, np.integer, np.floating, np.bool_)) for x in L)
         case list():
             return all(is_ndim_list(x, dim - 1) for x in L)
         case _:
@@ -631,10 +634,11 @@ class JointNestedRaggedTensorDict:
         """Infers the minimal necessary dtype for storing the input data.
 
         Accepted scalar types are ints, floats, and bools. Pure-bool input resolves to
-        ``np.bool_`` (first-class boolean storage, which is byte-identical to ``np.uint8``
-        on disk but preserves boolean semantics for downstream operations like masking).
-        Any bool mixed with ints or floats flows through the int or float path and is
-        promoted accordingly (``isinstance(True, int)`` is True at runtime).
+        ``np.bool_`` (first-class boolean storage, which uses the same 1 byte/element
+        payload size as ``np.uint8`` while preserving boolean semantics for downstream
+        operations like masking). Any bool mixed with ints or floats flows through the
+        int or float path and is promoted accordingly (``isinstance(True, int)`` is True
+        at runtime).
 
         Args:
             vals: The sequence of values to type.
@@ -682,20 +686,20 @@ class JointNestedRaggedTensorDict:
             >>> JointNestedRaggedTensorDict._infer_dtype([1e39])
             Traceback (most recent call last):
                 ...
-            ValueError: No valid type available for 1e+39 - 1e+39!
+            ValueError: Cannot store range [1e+39, 1e+39] as np.float32 (the only supported float dtype).
             >>> JointNestedRaggedTensorDict._infer_dtype([-1e39])
             Traceback (most recent call last):
                 ...
-            ValueError: No valid type available for -1e+39 - -1e+39!
+            ValueError: Cannot store range [-1e+39, -1e+39] as np.float32 (the only supported float dtype).
             >>> import numpy as np
             >>> JointNestedRaggedTensorDict._infer_dtype([np.inf])
             Traceback (most recent call last):
                 ...
-            ValueError: No valid type available for inf - inf!
+            ValueError: Cannot store range [inf, inf] as np.float32 (the only supported float dtype).
             >>> JointNestedRaggedTensorDict._infer_dtype([-np.inf])
             Traceback (most recent call last):
                 ...
-            ValueError: No valid type available for -inf - -inf!
+            ValueError: Cannot store range [-inf, -inf] as np.float32 (the only supported float dtype).
             >>> JointNestedRaggedTensorDict._infer_dtype([np.nan, 1.0])
             <class 'numpy.float32'>
 
@@ -704,11 +708,11 @@ class JointNestedRaggedTensorDict:
             >>> JointNestedRaggedTensorDict._infer_dtype([1e39, np.nan])
             Traceback (most recent call last):
                 ...
-            ValueError: No valid type available for 1e+39 - 1e+39!
+            ValueError: Cannot store range [1e+39, 1e+39] as np.float32 (the only supported float dtype).
             >>> JointNestedRaggedTensorDict._infer_dtype([np.nan, np.inf])
             Traceback (most recent call last):
                 ...
-            ValueError: No valid type available for inf - inf!
+            ValueError: Cannot store range [inf, inf] as np.float32 (the only supported float dtype).
 
             Mixed Python int and float where the int exceeds float64 precision:
             numpy falls back to object dtype, we route through the float path.
@@ -728,7 +732,7 @@ class JointNestedRaggedTensorDict:
             >>> JointNestedRaggedTensorDict._infer_dtype([3.14, 10**400])  # doctest: +ELLIPSIS
             Traceback (most recent call last):
                 ...
-            ValueError: No valid type available for 3.14 - ...!
+            ValueError: Cannot store range [3.14, ...] as np.float32 (the only supported float dtype).
 
             All-NaN input accepts (matches prior semantics; a schema can't be
             inferred more precisely):
@@ -754,18 +758,20 @@ class JointNestedRaggedTensorDict:
         if kind == "O":
             # numpy couldn't collapse. Confirm the inputs are still all numeric, then
             # route to the float or int path based on whether any value is a float.
-            if not all(
-                isinstance(v, (int, float, *NP_INT_TYPES, *NP_UINT_TYPES, *NP_FLOAT_TYPES)) for v in vals
-            ):
+            # Abstract bases (np.integer, np.floating, np.bool_) cover every numpy
+            # scalar type listed in NUM_T without enumerating NP_INT_TYPES et al.
+            if not all(isinstance(v, (int, float, np.integer, np.floating, np.bool_)) for v in vals):
                 raise ValueError("Vals must all be ints, floats, or bools")
-            if any(isinstance(v, (float, *NP_FLOAT_TYPES)) for v in vals):
+            if any(isinstance(v, (float, np.floating)) for v in vals):
                 try:
                     arr = np.asarray(vals, dtype=np.float64)
                 except OverflowError:
-                    # A Python int too big to represent in float64. Not a valid numeric
-                    # type for us either — surface the same "No valid type" error.
+                    # A Python int too big to represent in float64. Floats are stored
+                    # as float32 in this package, so this value can't be held either.
                     mn, mx = min(vals), max(vals)
-                    raise ValueError(f"No valid type available for {mn} - {mx}!") from None
+                    raise ValueError(
+                        f"Cannot store range [{mn}, {mx}] as np.float32 " "(the only supported float dtype)."
+                    ) from None
                 kind = "f"
             else:
                 # All (Python or numpy) ints but beyond int64/uint64 range. Object
@@ -792,7 +798,9 @@ class JointNestedRaggedTensorDict:
             f32_max = float(info.max)
             f32_min = float(info.min)
             if mx > f32_max or mn < f32_min:
-                raise ValueError(f"No valid type available for {mn} - {mx}!")
+                raise ValueError(
+                    f"Cannot store range [{mn}, {mx}] as np.float32 " "(the only supported float dtype)."
+                )
             return np.float32
 
         if kind == "b":
