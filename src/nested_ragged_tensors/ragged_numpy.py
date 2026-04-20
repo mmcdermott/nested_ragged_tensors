@@ -1134,6 +1134,48 @@ class JointNestedRaggedTensorDict:
             IndexError: Index -4 is out of range for JointNestedRaggedTensorDict of length 3.
             >>> J[5:10].tensors['dim0/T']
             array([], dtype=uint8)
+
+        Tuple int indexing is bounds-checked at every dim, not just dim 0. The
+        length available at each dim is the row length already selected by previous
+        ints; the error names the dim and that length.
+
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T": [1, 2, 3],
+            ...     "id": [[1, 2, 3], [3, 4], [1, 2]],
+            ... })
+            >>> J[0, 3]
+            Traceback (most recent call last):
+                ...
+            IndexError: Index 3 is out of range at dim 1 (length 3).
+            >>> J[1, 2]
+            Traceback (most recent call last):
+                ...
+            IndexError: Index 2 is out of range at dim 1 (length 2).
+            >>> J[1, -5]
+            Traceback (most recent call last):
+                ...
+            IndexError: Index -5 is out of range at dim 1 (length 2).
+            >>> J[0, -1].tensors['dim-1/id']  # valid negative dim-1 index normalizes
+            array([3], dtype=uint8)
+
+        Works recursively at arbitrary depth — here dim 2 indexing is bounds-
+        checked against the currently-selected (dim-0, dim-1) row:
+
+            >>> J3 = JointNestedRaggedTensorDict({
+            ...     "T":   [[1,           2       ], [4  ]],
+            ...     "id":  [[[1, 2, 3],   [3,   4]], [[3]]],
+            ...     "val": [[[1, 0.2, 0], [3.1, 0]], [[3]]],
+            ... }, schema={"T": int, "id": int, "val": float})
+            >>> J3[0, 0, 2].tensors['dim-1/val']  # row (0, 0) has 3 elements — valid
+            array([0.])
+            >>> J3[0, 0, 5]
+            Traceback (most recent call last):
+                ...
+            IndexError: Index 5 is out of range at dim 2 (length 3).
+            >>> J3[1, 0, 2]
+            Traceback (most recent call last):
+                ...
+            IndexError: Index 2 is out of range at dim 2 (length 1).
         """
         return self._slice(self._get_slice_indices(idx))
 
@@ -2036,13 +2078,25 @@ class JointNestedRaggedTensorDict:
                 squeeze_dims = []
                 out_indices = {}
                 seen_non_int = False
+                # Track the length available to the next int bounds check. At dim 0
+                # this is len(self); at deeper dims it is the currently-selected
+                # row's length, which we derive from out_indices after each call to
+                # _get_slice_indices_internal. The internal already walks bounds
+                # recursively to translate (st, end) from dim D to dim D+1, so
+                # reading out_indices here reuses that state rather than duplicating
+                # the recursion.
+                current_length = len(self)
                 for dim, idx in enumerate(T):
                     if seen_non_int:
                         raise ValueError("Multi-level non-int slicing is not supported.")
 
                     if isinstance(idx, int):
-                        if dim == 0:
-                            idx = self._check_int_index(idx)
+                        if not -current_length <= idx < current_length:
+                            raise IndexError(
+                                f"Index {idx} is out of range at dim {dim} " f"(length {current_length})."
+                            )
+                        if idx < 0:
+                            idx += current_length
                         idx = slice(idx, idx + 1)
                         squeeze_dims.append(dim)
                     else:
@@ -2054,6 +2108,7 @@ class JointNestedRaggedTensorDict:
                             f"{self.__class__.__name__} tuple slicing"
                         )
                     out_indices = self._get_slice_indices_internal(idx, dim, out_indices)
+                    current_length = self._row_length_from_out_indices(out_indices, dim + 1)
                 return (out_indices, squeeze_dims)
             case slice() as S:
                 return self._get_slice_indices_internal(S, 0, {})
@@ -2066,8 +2121,8 @@ class JointNestedRaggedTensorDict:
         Out-of-range int indexing previously silently returned an empty JNRT (positive
         index) or raised a cryptic internal ``IndexError`` (negative index, see #52);
         this method replaces both with a clean ``IndexError`` matching Python/numpy
-        list semantics. Only dim-0 is covered here — deeper-dim int bounds depend on
-        per-row lengths in a ragged tensor and are out of scope for this check.
+        list semantics. Only dim-0 is covered here; see ``_check_dim1_int_index`` for
+        the dim-1 analogue in multi-dim tuple slicing.
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
@@ -2092,6 +2147,66 @@ class JointNestedRaggedTensorDict:
         if not -n <= i < n:
             raise IndexError(f"Index {i} is out of range for {self.__class__.__name__} of length {n}.")
         return i if i >= 0 else i + n
+
+    def _row_length_from_out_indices(self, out_indices: dict, dim: int) -> int | None:
+        """Row length at ``dim`` given the current tuple-slice resolution state.
+
+        Used by tuple int-index bounds checking at any depth. After
+        ``_get_slice_indices_internal`` resolves a slice at dim D, ``out_indices``
+        already encodes the row selected by previous ints via flat slices for
+        dim D (and deeper). The length of that row at ``dim`` is ``stop - start``
+        of any data-key slice at that dim; if there are no data keys at ``dim``,
+        it's derived from the bounds slice + bounds array.
+
+        Returns ``None`` when ``dim >= self.max_n_dims`` (no further int bounds
+        checks are possible — the tuple has run off the end of the ragged
+        structure).
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({
+            ...     "T": [1, 2, 3],
+            ...     "id": [[1, 2, 3], [3, 4], [1, 2]],
+            ... })
+            >>> out = J._get_slice_indices_internal(slice(0, 1), 0, {})
+            >>> J._row_length_from_out_indices(out, 1)
+            3
+            >>> out = J._get_slice_indices_internal(slice(1, 2), 0, {})
+            >>> J._row_length_from_out_indices(out, 1)
+            2
+            >>> J._row_length_from_out_indices(out, 5)  # past max_n_dims
+
+            Fallback path: if a dim has no data keys, row length is derived
+            from the bounds slice + bounds tensor.
+
+            >>> J_nodata_dim1 = JointNestedRaggedTensorDict({"id": [[[1, 2], [3]], [[4]]]})
+            >>> J_nodata_dim1.keys_at_dim(1)
+            set()
+            >>> out = J_nodata_dim1._get_slice_indices_internal(slice(0, 1), 0, {})
+            >>> J_nodata_dim1._row_length_from_out_indices(out, 1)
+            2
+        """
+        if dim >= self.max_n_dims:
+            return None
+        for key in self.keys_at_dim(dim):
+            s = out_indices.get(f"dim{dim}/{key}")
+            if isinstance(s, slice):
+                return int((s.stop or 0) - (s.start or 0))
+        bounds_slice = out_indices.get(f"dim{dim}/bounds")
+        if not isinstance(bounds_slice, slice):  # pragma: no cover
+            return None
+        bst = bounds_slice.start or 0
+        bend = bounds_slice.stop
+        with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
+            if bend is None:  # pragma: no cover  # tuple-slice path always sets stop
+                try:
+                    bend = bounds.get_shape()[0]
+                except Exception:
+                    bend = len(bounds)
+            if bend <= bst:  # pragma: no cover  # empty bounds slice — defensive
+                return 0
+            start_flat = int(bounds[bst - 1]) if bst > 0 else 0
+            end_flat = int(bounds[bend - 1])
+        return end_flat - start_flat
 
     def _get_slice_indices_internal(
         self, idx: slice, starting_dim: int, curr_indices: dict[str, slice]
