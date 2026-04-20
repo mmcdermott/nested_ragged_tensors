@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776694738881,
+  "lastUpdate": 1776694741406,
   "repoUrl": "https://github.com/mmcdermott/nested_ragged_tensors",
   "entries": {
     "Benchmark": [
@@ -18045,6 +18045,240 @@ window.BENCHMARK_DATA = {
             "name": "CoreOps/ToDense_MultiKey/large",
             "value": 0.06271585080000933,
             "range": "0.028952641740853557",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mattmcdermott8@gmail.com",
+            "name": "Matthew McDermott",
+            "username": "mmcdermott"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba32dfabe9d83266c0210b5e0d98038e431e46c2",
+          "message": "Make concatenate/vstack linear instead of O(N^2) (#72)\n\n* Make concatenate/vstack linear instead of O(N^2) (closes #68)\n\nThe previous implementation grew an accumulator by doing one\nnp.concatenate per input tensor, which allocates and copies the full\ncurrent result on every iteration — O(N^2) in the number of inputs.\nAt batch=256 this runs ~140x slower than a one-shot np.concatenate;\nat batch=1024, ~470x slower. Since vstack is the dataloader collation\nhot path, this dominates training iteration time.\n\nSeparate the validation loop (touches every tensor once) from the data\ngather loop (collects all per-key arrays into lists, then does a single\nnp.concatenate per key). Offsets for bounds keys are accumulated as\nPython ints during the gather pass, so only one allocation per output\nkey remains. Behavior is unchanged — same validation errors, same\noutput dict keys, dtypes, and bound semantics.\n\nMeasured on the issue's probe (100-row 2D items, best-of-3):\n  N=16:    0.35ms -> 0.17ms   (2.0x)\n  N=64:    2.36ms -> 0.62ms   (3.8x)\n  N=256:  10.76ms -> 2.50ms   (4.3x)\n  N=1024:141.88ms -> 9.86ms  (14.4x)\n\nScaling is now linear in N, matching the one-shot np.concatenate floor.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Address PR #72 review: preserve key order, improve concat error detail\n\n- Iterate tensors[0].tensors in insertion order instead of iterating a\n  set from keys_at_dim(). Set iteration of strings is hash-randomized\n  across runs (PYTHONHASHSEED), which would have broken byte-\n  reproducibility of save_file output. The previous implementation\n  preserved order via dict(tensors[0].tensors); this restores that\n  guarantee while keeping the linear concatenation structure.\n- Exception path now includes per-part shape+dtype instead of just\n  key+dim. The original dumped full arrays (unreadable for large\n  inputs); shapes+dtypes give actionable diagnostics without the\n  noise.\n- Add a doctest locking in the key-order invariant.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Preserve bounds dtype in concatenate offset accumulation\n\nAccumulate offset as a numpy scalar of the bounds' own dtype. A plain\nPython int offset triggers scalar-to-array dtype promotion on numpy\n< 2 — e.g., int32 bounds + large Python int could upcast to int64,\nbreaking byte-reproducibility of save_file output for disk-roundtripped\nJNRTs. Using `b[-1]` as the seed and `offset + b[-1]` as the update\nkeeps the offset's dtype bound to the input.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-20T10:17:22-04:00",
+          "tree_id": "190685c17b8d9b5e1c1e6953175290c7d362225a",
+          "url": "https://github.com/mmcdermott/nested_ragged_tensors/commit/ba32dfabe9d83266c0210b5e0d98038e431e46c2"
+        },
+        "date": 1776694740891,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "CoreOps/GetItem_Int/small",
+            "value": 0.000026557740000015427,
+            "range": "7.087941308322399e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/medium",
+            "value": 0.000026132364000005735,
+            "range": "2.504370048725805e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Int/large",
+            "value": 0.00002519295399997645,
+            "range": "5.782391308652507e-7",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/small",
+            "value": 0.00003134039999963534,
+            "range": "0.000010781603375797113",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/medium",
+            "value": 0.00002858719999778714,
+            "range": "0.000014644462481355996",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/GetItem_Slice/large",
+            "value": 0.00003959559999486828,
+            "range": "0.00002384932525897518",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/small",
+            "value": 0.000011551400004350398,
+            "range": "0.000010806896237991209",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/medium",
+            "value": 0.000007038999999053885,
+            "range": "0.000003011095644141521",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_1D/large",
+            "value": 0.000007526000001689681,
+            "range": "0.000004017769900512705",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/small",
+            "value": 0.00025748199999782174,
+            "range": "0.000022331844006648537",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/medium",
+            "value": 0.0022494944000015947,
+            "range": "0.000049694581446483445",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_2D/large",
+            "value": 0.03434316260000116,
+            "range": "0.026402508599070257",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/small",
+            "value": 0.0013767618000002813,
+            "range": "0.000048442532445079706",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/medium",
+            "value": 0.02601260639999623,
+            "range": "0.027078680952255",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_3D/large",
+            "value": 0.272686896999997,
+            "range": "0.03457638718349723",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch16",
+            "value": 0.00039157760000136933,
+            "range": "0.000037449339035502045",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch64",
+            "value": 0.0013388793999979498,
+            "range": "0.00004380891746744269",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Collate_VStack_ToDense/batch256",
+            "value": 0.0051565551999971145,
+            "range": "0.00017832958095330848",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/small",
+            "value": 0.00005469180000261531,
+            "range": "0.000012519359534698281",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/medium",
+            "value": 0.00005407299999831139,
+            "range": "0.000012827478391869981",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Concatenate/large",
+            "value": 0.00007639400000130081,
+            "range": "0.00003030644033973597",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/small",
+            "value": 0.00025222019999944224,
+            "range": "0.00009986771311253853",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/small",
+            "value": 0.00006341039999995246,
+            "range": "0.00003485046364309609",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/medium",
+            "value": 0.0002844084000003022,
+            "range": "0.0001357743856931091",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/medium",
+            "value": 0.00007757060000699312,
+            "range": "0.000046013985406551965",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Save/large",
+            "value": 0.0005338276000003362,
+            "range": "0.00024355093005164435",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/Load/large",
+            "value": 0.00010930999999629876,
+            "range": "0.000038419408580718045",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/small",
+            "value": 0.000553912600000217,
+            "range": "0.000025671942635163257",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/medium",
+            "value": 0.004974613400003136,
+            "range": "0.000053728704502064716",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "CoreOps/ToDense_MultiKey/large",
+            "value": 0.06447523839999576,
+            "range": "0.03081338836868877",
             "unit": "seconds",
             "extra": "Count: 5"
           }
