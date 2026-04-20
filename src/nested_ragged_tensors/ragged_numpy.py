@@ -571,14 +571,59 @@ class JointNestedRaggedTensorDict:
             return set(f.keys())
 
     @contextmanager
-    def _tensor_at_key(self, key: str):
+    def _archive_ctx(self):
+        """Open the backing safetensors archive once, or yield None for in-memory.
+
+        Used to coalesce disk accesses inside a hot multi-key operation (e.g. a single
+        ``__getitem__`` touches several keys). See #70 — previously every
+        ``_tensor_at_key`` call entered a fresh ``safe_open`` context, so one logical
+        access reopened the file N times. Threading the handle yielded here through the
+        internal slicing helpers reduces that to a single open per operation.
+        """
+        if self._tensors is not None or self._tensors_fp is None:
+            yield None
+            return
+        with safe_open(self._tensors_fp, framework="np") as f:
+            # Prime the _tensor_keys cached_property using this already-open handle so
+            # downstream keys()/keys_at_dim() lookups don't spawn a second safe_open.
+            if "_tensor_keys" not in self.__dict__:
+                if self._subset_keys is not None:
+                    self.__dict__["_tensor_keys"] = set(self._subset_keys)
+                else:
+                    self.__dict__["_tensor_keys"] = set(f.keys())
+            # Prime _cached_len using this handle. __getitem__ calls len(self)
+            # via _bounds_check_int for dim-0 bounds checking; without this
+            # priming, that call would trigger a second safe_open.
+            #
+            # Permanently memoizing __len__ is a deliberate behavior change from
+            # the prior "compute fresh each call" implementation, but is safe
+            # under the JNRT's immutability-post-construction contract: nothing
+            # in the public API mutates _tensors_fp / _subset_keys / _tensors,
+            # and every operation that changes length (`__getitem__`, `squeeze`,
+            # `unsqueeze`, `flatten`, `concatenate`, `vstack`) returns a new
+            # instance with its own cache state. Stale cache would only happen
+            # under private-attribute mutation or out-of-band file modification,
+            # both out of spec.
+            if "_cached_len" not in self.__dict__:
+                if self.max_n_dims == 1:
+                    k = next(iter(self._tensor_keys))
+                    self.__dict__["_cached_len"] = f.get_slice(k).get_shape()[0]
+                else:
+                    self.__dict__["_cached_len"] = f.get_slice("dim1/bounds").get_shape()[0]
+            yield f
+
+    @contextmanager
+    def _tensor_at_key(self, key: str, archive=None):
         if self._subset_keys is not None and key not in self._subset_keys:
             raise KeyError(f"Key {key!r} is not part of the loaded subset {sorted(self._subset_keys)}.")
-        if self._tensors is None:
+        if self._tensors is not None:
+            yield self._tensors[key]
+        elif archive is not None:
+            # Reuse the already-open archive handle from the enclosing _archive_ctx.
+            yield archive.get_slice(key)
+        else:
             with safe_open(self._tensors_fp, framework="np") as f:
                 yield f.get_slice(key)
-        else:
-            yield self._tensors[key]
 
     @classmethod
     def _get_lengths_and_values(
@@ -1037,7 +1082,7 @@ class JointNestedRaggedTensorDict:
         """
         return {k for k in self.keys() if self._get_dim(k) == dim}
 
-    def __getitem__(self, idx: int | slice | np.ndarray):
+    def __getitem__(self, idx: int | slice | tuple | np.ndarray):
         """Returns either a slice of the tensors in this collection or the tensor at the given key.
 
         Args:
@@ -1220,7 +1265,8 @@ class JointNestedRaggedTensorDict:
                 ...
             IndexError: Too many indices for JointNestedRaggedTensorDict: got 3 indices but max_n_dims is 2.
         """
-        return self._slice(self._get_slice_indices(idx))
+        with self._archive_ctx() as archive:
+            return self._slice(self._get_slice_indices(idx, archive=archive), archive=archive)
 
     def to_dense(self, padding_side: str = "right") -> dict[str, np.ndarray]:
         """Returns a dense view of these ragged tensors.
@@ -1722,18 +1768,25 @@ class JointNestedRaggedTensorDict:
             ...     len(J2)
             3
         """
+        if "_cached_len" in self.__dict__:
+            # Primed by _archive_ctx so a len() inside the ctx doesn't spawn a
+            # second safe_open; still populated opportunistically on the first
+            # direct __len__ call below.
+            return self.__dict__["_cached_len"]
         if self._tensors is None:
             with safe_open(self._tensors_fp, framework="np") as f:
                 if self.max_n_dims == 1:
                     k = next(iter(self._tensor_keys))
-                    return f.get_slice(k).get_shape()[0]
+                    n = f.get_slice(k).get_shape()[0]
                 else:
-                    return f.get_slice("dim1/bounds").get_shape()[0]
+                    n = f.get_slice("dim1/bounds").get_shape()[0]
         elif self.max_n_dims == 1:
             k = next(iter(self._tensor_keys))
-            return len(self.tensors[k])
+            n = len(self.tensors[k])
         else:
-            return len(self.tensors["dim1/bounds"])
+            n = len(self.tensors["dim1/bounds"])
+        self.__dict__["_cached_len"] = n
+        return n
 
     @classmethod
     def vstack(cls, tensor_dicts: list) -> JointNestedRaggedTensorDict:
@@ -2034,6 +2087,7 @@ class JointNestedRaggedTensorDict:
         self,
         indices: dict[str, slice],
         squeeze_dims: list[int] | None = None,
+        archive=None,
     ) -> JointNestedRaggedTensorDict:
         """Slices this collection of tensors by the given indices.
 
@@ -2065,7 +2119,7 @@ class JointNestedRaggedTensorDict:
 
             match idx:
                 case slice() as S:
-                    with self._tensor_at_key(k) as T:
+                    with self._tensor_at_key(k, archive=archive) as T:
                         if key == "bounds" and S.start is not None and S.start > 0:
                             try:
                                 L = T.get_shape()[0]
@@ -2090,8 +2144,8 @@ class JointNestedRaggedTensorDict:
 
     def _slice(
         self,
-        indices: tuple[dict[str, slice | np.ndarray], bool]
-        | list[tuple[dict[str, slice | np.ndarray], bool]],
+        indices: (dict[str, slice] | tuple[dict[str, slice], list[int]] | list[dict[str, slice]]),
+        archive=None,
     ) -> JointNestedRaggedTensorDict:
         """Returns a new JointNestedRaggedTensorDict that is a slice of this one.
 
@@ -2110,17 +2164,19 @@ class JointNestedRaggedTensorDict:
         """
         match indices:
             case tuple() as T:
-                return self._slice_single(*T)
+                return self._slice_single(*T, archive=archive)
             case dict():
-                return self._slice_single(indices)
+                return self._slice_single(indices, archive=archive)
             case list():
-                return self.__class__.vstack([self._slice_single(idx, squeeze_dims=[0]) for idx in indices])
+                return self.__class__.vstack(
+                    [self._slice_single(idx, squeeze_dims=[0], archive=archive) for idx in indices]
+                )
             case _:
                 raise TypeError(f"{type(indices)} not supported for {self.__class__.__name__} slicing")
 
     def _get_slice_indices(
-        self, idx: int | slice | tuple | np.ndarray
-    ) -> tuple[dict[str, slice], bool] | list[dict[str, slice]] | dict[str, slice]:
+        self, idx: int | slice | tuple | np.ndarray, archive=None
+    ) -> dict[str, slice] | tuple[dict[str, slice], list[int]] | list[dict[str, slice]]:
         """Returns the start and end indices for each dimension of self after slicing by idx.
 
         Args:
@@ -2149,10 +2205,10 @@ class JointNestedRaggedTensorDict:
         match idx:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
                 normalized = [self._bounds_check_int(int(i), len(self), 0) for i in arr]
-                return [self._get_slice_indices(slice(i, i + 1)) for i in normalized]
+                return [self._get_slice_indices(slice(i, i + 1), archive=archive) for i in normalized]
             case int() as i:
                 i = self._bounds_check_int(i, len(self), 0)
-                return (self._get_slice_indices(slice(i, i + 1)), [0])
+                return (self._get_slice_indices(slice(i, i + 1), archive=archive), [0])
             case tuple() as T:
                 squeeze_dims = []
                 out_indices = {}
@@ -2190,11 +2246,11 @@ class JointNestedRaggedTensorDict:
                             f"{type(idx)} at index {dim} not supported for "
                             f"{self.__class__.__name__} tuple slicing"
                         )
-                    out_indices = self._get_slice_indices_internal(idx, dim, out_indices)
-                    current_length = self._row_length_from_out_indices(out_indices, dim + 1)
+                    out_indices = self._get_slice_indices_internal(idx, dim, out_indices, archive=archive)
+                    current_length = self._row_length_from_out_indices(out_indices, dim + 1, archive=archive)
                 return (out_indices, squeeze_dims)
             case slice() as S:
-                return self._get_slice_indices_internal(S, 0, {})
+                return self._get_slice_indices_internal(S, 0, {}, archive=archive)
             case _:
                 raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__} slicing")
 
@@ -2234,7 +2290,7 @@ class JointNestedRaggedTensorDict:
             raise IndexError(f"Index {idx} is out of range at dim {dim} (length {length}).")
         return idx if idx >= 0 else idx + length
 
-    def _row_length_from_out_indices(self, out_indices: dict, dim: int) -> int | None:
+    def _row_length_from_out_indices(self, out_indices: dict, dim: int, archive=None) -> int | None:
         """Row length at ``dim`` given the current tuple-slice resolution state.
 
         Used by tuple int-index bounds checking at any depth. After
@@ -2283,7 +2339,7 @@ class JointNestedRaggedTensorDict:
             return None
         bst = bounds_slice.start or 0
         bend = bounds_slice.stop
-        with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
+        with self._tensor_at_key(f"dim{dim}/bounds", archive=archive) as bounds:
             if bend is None:  # pragma: no cover  # tuple-slice path always sets stop
                 try:
                     bend = bounds.get_shape()[0]
@@ -2296,7 +2352,7 @@ class JointNestedRaggedTensorDict:
         return end_flat - start_flat
 
     def _get_slice_indices_internal(
-        self, idx: slice, starting_dim: int, curr_indices: dict[str, slice]
+        self, idx: slice, starting_dim: int, curr_indices: dict[str, slice], archive=None
     ) -> dict[str, slice]:
         """Returns the resolved slice for the given input slice and starting dimension.
 
@@ -2371,7 +2427,7 @@ class JointNestedRaggedTensorDict:
         for dim in range(max(starting_dim + 1, 1), self.max_n_dims):
             out[f"dim{dim}/bounds"] = slice(st_i, end_i)
 
-            with self._tensor_at_key(f"dim{dim}/bounds") as bounds:
+            with self._tensor_at_key(f"dim{dim}/bounds", archive=archive) as bounds:
                 try:
                     L = bounds.get_shape()[0]
                 except Exception:

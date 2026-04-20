@@ -217,6 +217,30 @@ def bench_multikey(results):
         results.append(_make_entry(f"CoreOps/ToDense_MultiKey/{label}", "seconds", mean, std, count))
 
 
+def bench_disk_getitem(results):
+    """Benchmark __getitem__ on a disk-backed JNRT (exercises the safe_open path)."""
+    for label, n in SCALE_CONFIGS:
+        J = make_2d(n)
+        with TemporaryDirectory() as tmpdir:
+            fp = Path(tmpdir) / "test.nrt"
+            J.save(fp)
+            J_disk = JointNestedRaggedTensorDict(tensors_fp=fp)
+            indices = list(range(min(n, 200)))
+            # Warm caches so the first-call one-off cost isn't timed.
+            J_disk[0]
+
+            def run(J_disk=J_disk, indices=indices):
+                for i in indices:
+                    J_disk[i]
+
+            mean, std, count = _time(run)
+            per_item = mean / len(indices)
+            per_item_std = std / len(indices)
+            results.append(
+                _make_entry(f"CoreOps/GetItem_Disk/{label}", "seconds", per_item, per_item_std, count)
+            )
+
+
 # ---------------------------------------------------------------------------
 # Test entry point
 # ---------------------------------------------------------------------------
@@ -240,6 +264,7 @@ def test_micro_benchmarks():
     bench_concatenate(results)
     bench_save_load(results)
     bench_multikey(results)
+    bench_disk_getitem(results)
 
     output_fp = OUTPUT_DIR / "micro.json"
     output_fp.parent.mkdir(parents=True, exist_ok=True)
