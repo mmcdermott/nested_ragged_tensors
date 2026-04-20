@@ -1697,8 +1697,7 @@ class JointNestedRaggedTensorDict:
         out_keys = tensors[0].keys()
         out_max_n_dims = tensors[0].max_n_dims
         out_schema = tensors[0].schema
-        out_tensors = dict(tensors[0].tensors)
-        out_keys_at_dim = [tensors[0].keys_at_dim(i) for i in range(tensors[0].max_n_dims)]
+        out_keys_at_dim = [tensors[0].keys_at_dim(i) for i in range(out_max_n_dims)]
 
         for T in tensors[1:]:
             if T.keys() != out_keys:
@@ -1716,23 +1715,28 @@ class JointNestedRaggedTensorDict:
                         f"Keys inconsistent @ dim {dim}! {T.keys_at_dim(dim)} != {out_keys_at_dim[dim]}"
                     )
 
-                if dim != 0:
-                    # Here we need to handle bounds and such as well
-                    bounds_key = f"dim{dim}/bounds"
-
-                    last_bound = out_tensors[bounds_key][-1] if len(out_tensors[bounds_key]) > 0 else 0
-                    out_tensors[bounds_key] = np.concatenate(
-                        (out_tensors[bounds_key], T.tensors[bounds_key] + last_bound)
-                    )
-                for key in out_keys_at_dim[dim]:
-                    k_str = f"dim{dim}/{key}"
-                    try:
-                        out_tensors[k_str] = np.concatenate((out_tensors[k_str], T.tensors[k_str]), axis=0)
-                    except Exception as e:  # pragma: no cover
-                        raise ValueError(
-                            f"Failed to concatenate {key} at dim {dim} with args "
-                            f"{out_tensors[k_str]} and {T.tensors[k_str]}"
-                        ) from e
+        # Gather all per-key arrays up front and do a single np.concatenate per key. The
+        # previous implementation grew an accumulator with np.concatenate per input tensor,
+        # which is O(N^2) in the number of inputs (see #68).
+        out_tensors = {}
+        for dim in range(out_max_n_dims):
+            if dim != 0:
+                bounds_key = f"dim{dim}/bounds"
+                bounds_parts = []
+                offset = 0
+                for T in tensors:
+                    b = T.tensors[bounds_key]
+                    bounds_parts.append(b + offset if len(b) else b)
+                    if len(b):
+                        offset += int(b[-1])
+                out_tensors[bounds_key] = np.concatenate(bounds_parts)
+            for key in out_keys_at_dim[dim]:
+                k_str = f"dim{dim}/{key}"
+                parts = [T.tensors[k_str] for T in tensors]
+                try:
+                    out_tensors[k_str] = np.concatenate(parts, axis=0)
+                except Exception as e:  # pragma: no cover
+                    raise ValueError(f"Failed to concatenate {key} at dim {dim}") from e
         return cls(processed_tensors=out_tensors, schema=out_schema)
 
     def _slice_single(
