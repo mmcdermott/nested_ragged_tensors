@@ -1510,6 +1510,21 @@ class JointNestedRaggedTensorDict:
             ... })
             >>> print(len(J.flatten()))
             12
+
+        Flattening works on inputs whose inner ragged rows are all empty — the
+        outer-dim data is dropped because there are no positions to broadcast it
+        into (see #46).
+
+            >>> J = JointNestedRaggedTensorDict(
+            ...     {"T": [1, 2], "Z": [[], []]}, schema={"T": int, "Z": int}
+            ... )
+            >>> flat = J.flatten()
+            >>> len(flat)
+            0
+            >>> flat.to_dense()['Z']
+            array([], dtype=int64)
+            >>> flat.to_dense()['T']
+            array([], dtype=int64)
         """
         if dim < 0:
             target_dim = self.max_n_dims + dim
@@ -1548,12 +1563,17 @@ class JointNestedRaggedTensorDict:
 
         if len(self.keys_at_dim(target_dim - 1)) > 0:
             B = self.tensors[f"dim{target_dim}/bounds"]
-            L = B[-1]
+            L = int(B[-1]) if len(B) else 0
             indices = np.concatenate([[0], B[:-1]])
             for k in self.keys_at_dim(target_dim - 1):
                 old_T = self.tensors[f"dim{target_dim-1}/{k}"]
                 new_T = np.zeros(shape=(L,), dtype=old_T.dtype)
-                new_T[indices] = old_T
+                # When the flattened length is 0 (all inner ragged rows were empty), there
+                # are no positions to broadcast outer-dim values into. Skip the scatter;
+                # the zero-length new_T is the semantically correct output. Prior to this
+                # guard, `new_T[indices] = old_T` raised IndexError — see #46.
+                if L > 0:
+                    new_T[indices] = old_T
                 out_tensors[f"dim{target_dim-1}/{k}"] = new_T
 
         return self.__class__(processed_tensors=out_tensors, schema=self.schema)
