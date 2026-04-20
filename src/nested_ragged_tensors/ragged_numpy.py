@@ -1127,11 +1127,11 @@ class JointNestedRaggedTensorDict:
             >>> J[5]
             Traceback (most recent call last):
                 ...
-            IndexError: Index 5 is out of range for JointNestedRaggedTensorDict of length 3.
+            IndexError: Index 5 is out of range at dim 0 (length 3).
             >>> J[-4]
             Traceback (most recent call last):
                 ...
-            IndexError: Index -4 is out of range for JointNestedRaggedTensorDict of length 3.
+            IndexError: Index -4 is out of range at dim 0 (length 3).
             >>> J[5:10].tensors['dim0/T']
             array([], dtype=uint8)
 
@@ -1176,6 +1176,17 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             IndexError: Index 2 is out of range at dim 2 (length 1).
+
+        Passing more ints than the JNRT has dimensions is a clean ``IndexError``
+        rather than a surprise ``TypeError`` from None-arithmetic:
+
+            >>> J2 = JointNestedRaggedTensorDict({"T": [[1, 2], [3]]})
+            >>> J2.max_n_dims
+            2
+            >>> J2[0, 0, 0]
+            Traceback (most recent call last):
+                ...
+            IndexError: Too many indices for JointNestedRaggedTensorDict: got 3 indices but max_n_dims is 2.
         """
         return self._slice(self._get_slice_indices(idx))
 
@@ -2061,7 +2072,8 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             TypeError: <class 'list'> not supported for JointNestedRaggedTensorDict slicing
-            >>> J._get_slice_indices((1, 2.4))
+            >>> J2 = JointNestedRaggedTensorDict({"T": [[1, 2, 3], [4, 5]]})
+            >>> J2._get_slice_indices((0, 2.4))
             Traceback (most recent call last):
                 ...
             TypeError: <class 'float'> at index 1 not supported for JointNestedRaggedTensorDict tuple slicing
@@ -2089,6 +2101,15 @@ class JointNestedRaggedTensorDict:
                 for dim, idx in enumerate(T):
                     if seen_non_int:
                         raise ValueError("Multi-level non-int slicing is not supported.")
+
+                    if current_length is None:
+                        # _row_length_from_out_indices returned None because we've
+                        # exhausted the ragged structure — the tuple has more ints
+                        # than the JNRT has dimensions. Match numpy's error shape.
+                        raise IndexError(
+                            f"Too many indices for {self.__class__.__name__}: got "
+                            f"{len(T)} indices but max_n_dims is {self.max_n_dims}."
+                        )
 
                     if isinstance(idx, int):
                         if not -current_length <= idx < current_length:
@@ -2121,8 +2142,12 @@ class JointNestedRaggedTensorDict:
         Out-of-range int indexing previously silently returned an empty JNRT (positive
         index) or raised a cryptic internal ``IndexError`` (negative index, see #52);
         this method replaces both with a clean ``IndexError`` matching Python/numpy
-        list semantics. Only dim-0 is covered here; see ``_check_dim1_int_index`` for
-        the dim-1 analogue in multi-dim tuple slicing.
+        list semantics. Only dim-0 is handled here; dim>0 bounds checks for
+        multi-dim tuple slicing are computed inline in ``_get_slice_indices`` using
+        ``_row_length_from_out_indices`` for the current row length at each depth.
+        The error message format matches the dim>0 wording so callers see the same
+        ``"Index X is out of range at dim D (length N)"`` pattern regardless of which
+        dim failed.
 
         Examples:
             >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
@@ -2137,15 +2162,15 @@ class JointNestedRaggedTensorDict:
             >>> J._check_int_index(3)
             Traceback (most recent call last):
                 ...
-            IndexError: Index 3 is out of range for JointNestedRaggedTensorDict of length 3.
+            IndexError: Index 3 is out of range at dim 0 (length 3).
             >>> J._check_int_index(-4)
             Traceback (most recent call last):
                 ...
-            IndexError: Index -4 is out of range for JointNestedRaggedTensorDict of length 3.
+            IndexError: Index -4 is out of range at dim 0 (length 3).
         """
         n = len(self)
         if not -n <= i < n:
-            raise IndexError(f"Index {i} is out of range for {self.__class__.__name__} of length {n}.")
+            raise IndexError(f"Index {i} is out of range at dim 0 (length {n}).")
         return i if i >= 0 else i + n
 
     def _row_length_from_out_indices(self, out_indices: dict, dim: int) -> int | None:
