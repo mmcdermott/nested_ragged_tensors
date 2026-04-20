@@ -710,6 +710,26 @@ class JointNestedRaggedTensorDict:
 
             >>> JointNestedRaggedTensorDict._infer_dtype([3.14, 40000000000000000000])
             <class 'numpy.float32'>
+
+            Object-dtype input with a non-numeric element:
+
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, None])
+            Traceback (most recent call last):
+                ...
+            ValueError: Vals are neither all floats or all ints
+
+            Float + Python int too large to represent in float64:
+
+            >>> JointNestedRaggedTensorDict._infer_dtype([3.14, 10**400])  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+                ...
+            ValueError: No valid type available for 3.14 - ...!
+
+            All-NaN input accepts (matches prior semantics; a schema can't be
+            inferred more precisely):
+
+            >>> JointNestedRaggedTensorDict._infer_dtype([np.nan])
+            <class 'numpy.float32'>
         """
         # Let numpy do dtype inference in C — one pass instead of 3+ Python-level
         # isinstance walks (see #69). Kind 'O' falls out of asarray when numpy cannot
@@ -743,15 +763,10 @@ class JointNestedRaggedTensorDict:
                     raise ValueError(f"No valid type available for {mn} - {mx}!") from None
                 kind = "f"
             else:
-                # All (Python or numpy) ints but beyond int64/uint64 range. Preserve
-                # full precision via Python-level min/max so the "No valid type"
-                # error fires with accurate endpoints.
+                # All (Python or numpy) ints but beyond int64/uint64 range. Object
+                # dtype only happens here when no numpy int dtype can hold the value,
+                # so surface that directly with the full Python-int range for clarity.
                 mn, mx = min(vals), max(vals)
-                candidates = NP_UINT_TYPES if mn >= 0 else NP_INT_TYPES
-                for t in candidates:
-                    info = np.iinfo(t)
-                    if info.min <= mn and mx <= info.max:
-                        return t
                 raise ValueError(f"No valid type available for {mn} - {mx}!")
 
         if kind == "f":
@@ -783,7 +798,9 @@ class JointNestedRaggedTensorDict:
                 info = np.iinfo(t)
                 if info.min <= mn and mx <= info.max:
                     return t
-            raise ValueError(f"No valid type available for {mn} - {mx}!")
+            # Unreachable: for kind 'i'/'u'/'b', arr values fit in int64 or uint64,
+            # which are always in the candidate set — defensive guard only.
+            raise ValueError(f"No valid type available for {mn} - {mx}!")  # pragma: no cover
 
         raise ValueError("Vals are neither all floats or all ints")
 
