@@ -669,6 +669,25 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             ValueError: Cannot infer dtype from empty values; provide an explicit `schema=`.
+            >>> JointNestedRaggedTensorDict._infer_dtype([1e39])
+            Traceback (most recent call last):
+                ...
+            ValueError: No valid type available for 1e+39 - 1e+39!
+            >>> JointNestedRaggedTensorDict._infer_dtype([-1e39])
+            Traceback (most recent call last):
+                ...
+            ValueError: No valid type available for -1e+39 - -1e+39!
+            >>> import numpy as np
+            >>> JointNestedRaggedTensorDict._infer_dtype([np.inf])
+            Traceback (most recent call last):
+                ...
+            ValueError: No valid type available for inf - inf!
+            >>> JointNestedRaggedTensorDict._infer_dtype([-np.inf])
+            Traceback (most recent call last):
+                ...
+            ValueError: No valid type available for -inf - -inf!
+            >>> JointNestedRaggedTensorDict._infer_dtype([np.nan, 1.0])
+            <class 'numpy.float32'>
         """
         # Let numpy do dtype inference in C — one pass instead of 3+ Python-level
         # isinstance walks (see #69). Kind 'O' falls out of asarray on Python-int
@@ -686,7 +705,20 @@ class JointNestedRaggedTensorDict:
 
         if kind == "f":
             # Policy: always store floats as 32-bit for on-disk size consistency.
-            # Accepts the precision trade-off vs numpy's float64 default.
+            # Accepts the precision trade-off vs numpy's float64 default. Range-check
+            # against float32 finfo to match the original implementation: values outside
+            # the finite float32 range (including +/-inf) must raise, not silently
+            # materialize as inf. NaN compares False on both bounds and is accepted,
+            # matching prior semantics.
+            mn = float(arr.min())
+            mx = float(arr.max())
+            # Cast finfo bounds to Python float to avoid a numpy "overflow in cast"
+            # RuntimeWarning when the input magnitude exceeds float32's range.
+            info = np.finfo(np.float32)
+            f32_max = float(info.max)
+            f32_min = float(info.min)
+            if mx > f32_max or mn < f32_min:
+                raise ValueError(f"No valid type available for {mn} - {mx}!")
             return np.float32
         if kind in "iub":
             mn = int(arr.min())
