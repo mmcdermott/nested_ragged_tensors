@@ -730,8 +730,7 @@ class JointNestedRaggedTensorDict:
             # numpy couldn't collapse. Confirm the inputs are still all numeric, then
             # route to the float or int path based on whether any value is a float.
             if not all(
-                isinstance(v, (int, float, *NP_INT_TYPES, *NP_UINT_TYPES, *NP_FLOAT_TYPES))
-                for v in vals
+                isinstance(v, (int, float, *NP_INT_TYPES, *NP_UINT_TYPES, *NP_FLOAT_TYPES)) for v in vals
             ):
                 raise ValueError("Vals are neither all floats or all ints")
             if any(isinstance(v, (float, *NP_FLOAT_TYPES)) for v in vals):
