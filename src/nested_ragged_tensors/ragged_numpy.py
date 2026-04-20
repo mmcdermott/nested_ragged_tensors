@@ -655,6 +655,8 @@ class JointNestedRaggedTensorDict:
             <class 'numpy.int32'>
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128])
             <class 'numpy.int16'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([True, False, True])
+            <class 'numpy.uint8'>
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128, "foo"])
             Traceback (most recent call last):
                 ...
@@ -667,16 +669,22 @@ class JointNestedRaggedTensorDict:
         # Let numpy do dtype inference in C — one pass instead of 3+ Python-level
         # isinstance walks (see #69). Kind 'O' falls out of asarray on Python-int
         # overflow; we handle that below to preserve the "No valid type" error.
+        # Kind 'b' (bool) is treated as a non-negative integer, matching the previous
+        # behavior where `isinstance(True, int)` accepted bools and inferred uint8.
         arr = np.asarray(vals)
         kind = arr.dtype.kind
 
         if kind == "f":
-            return np.float32  # policy: 32-bit floats only, to avoid precision loss
-        if kind in "iu":
+            # Policy: always store floats as 32-bit for on-disk size consistency.
+            # Accepts the precision trade-off vs numpy's float64 default.
+            return np.float32
+        if kind in "iub":
             mn = int(arr.min())
             mx = int(arr.max())
-        elif kind == "O" and all(isinstance(v, int) for v in vals):
-            # Python int too large for any numpy int dtype — fall back to Python min/max.
+        elif kind == "O" and all(isinstance(v, (int, *NP_INT_TYPES, *NP_UINT_TYPES)) for v in vals):
+            # Python (or numpy) int too large for any numpy int dtype — fall back to
+            # Python-level min/max so the "No valid type" error still fires for ints
+            # that overflow int64 / uint64.
             mn = min(vals)
             mx = max(vals)
         else:
