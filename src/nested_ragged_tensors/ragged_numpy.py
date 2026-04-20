@@ -1742,13 +1742,18 @@ class JointNestedRaggedTensorDict:
             dim_str, key = k_str.split("/")
             dim = int(dim_str[3:])
             if key == "bounds":
+                # Accumulate offset as a numpy scalar of the bounds' dtype so `b + offset`
+                # does not trigger scalar-to-array dtype promotion (on numpy < 2 a Python
+                # int offset could upcast int32 bounds to int64, breaking dtype stability).
                 bounds_parts = []
-                offset = 0
+                offset = None
                 for T in tensors:
                     b = T.tensors[k_str]
-                    bounds_parts.append(b + offset if len(b) else b)
-                    if len(b):
-                        offset += int(b[-1])
+                    if len(b) == 0:
+                        bounds_parts.append(b)
+                        continue
+                    bounds_parts.append(b if offset is None else b + offset)
+                    offset = b[-1] if offset is None else offset + b[-1]
                 out_tensors[k_str] = np.concatenate(bounds_parts)
             else:
                 parts = [T.tensors[k_str] for T in tensors]
