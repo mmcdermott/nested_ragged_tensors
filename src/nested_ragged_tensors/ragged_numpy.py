@@ -15,7 +15,7 @@ NP_FLOAT_TYPES = (np.float16, np.float32, np.float64)
 NP_INT_TYPES = (np.int8, np.int16, np.int32, np.int64)
 NP_UINT_TYPES = (np.uint8, np.uint16, np.uint32, np.uint64)
 
-NUM_T = int | float
+NUM_T = int | float | bool | np.integer | np.floating
 NUM_LIST_T = list[NUM_T]
 NESTED_NUM_LIST_T = NUM_LIST_T
 NESTED_NUM_LIST_T = list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T
@@ -135,7 +135,10 @@ def is_ndim_list(L: Sequence | Sequence[int | float], dim: int = 1) -> bool:
         case np.ndarray():
             return L.ndim == dim
         case list() if dim == 1:
-            return all(isinstance(x, (int, float)) for x in L)
+            # Accept the same scalar set that NUM_T declares: Python int/float/bool
+            # plus numpy integer / floating / bool scalars. bool is a subclass of int
+            # at runtime, so listing it is for type-checker clarity only.
+            return all(isinstance(x, (int, float, np.integer, np.floating, np.bool_)) for x in L)
         case list():
             return all(is_ndim_list(x, dim - 1) for x in L)
         case _:
@@ -628,17 +631,26 @@ class JointNestedRaggedTensorDict:
 
     @classmethod
     def _infer_dtype(cls, vals: Sequence[NUM_T]) -> np.dtype:
-        """Infers the minimal necessary dtype for storing the input data. Inputs must be ints or floats.
+        """Infers the minimal necessary dtype for storing the input data.
+
+        Accepted scalar types are ints, floats, and bools. Pure-bool input resolves to
+        ``np.bool_`` (first-class boolean storage, which uses the same 1 byte/element
+        payload size as ``np.uint8`` while preserving boolean semantics for downstream
+        operations like masking). Any bool mixed with ints or floats flows through the
+        int or float path and is promoted accordingly (``isinstance(True, int)`` is True
+        at runtime).
 
         Args:
             vals: The sequence of values to type.
 
-        Returns: The minimal possible numpy dtype to store the inputs. If any of the inputs are floats,
-            returns `np.float32`; otherwise returns the minimal possible either signed or unsigned integral
-            dtype given the extent of the data.
+        Returns: The minimal possible numpy dtype to store the inputs. If all inputs are bools,
+            returns `np.bool_`. If any of the inputs are floats, returns `np.float32`. Otherwise
+            returns the minimal possible signed or unsigned integral dtype given the data range.
 
         Raises:
-            ValueError: If the inputs are not all ints or floats or if there are no valid types available.
+            ValueError: If the inputs are not all ints/floats/bools, if no valid numeric type
+                can hold the range (including out-of-range floats and ``+/-inf``), or if
+                ``vals`` is empty.
 
         Examples:
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 3.2, 4])
@@ -655,45 +667,161 @@ class JointNestedRaggedTensorDict:
             <class 'numpy.int32'>
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128])
             <class 'numpy.int16'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([True, False, True])
+            <class 'numpy.bool'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([True, 5])  # bool + int promotes to int
+            <class 'numpy.uint8'>
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128, "foo"])
             Traceback (most recent call last):
                 ...
-            ValueError: Vals are neither all floats or all ints
+            ValueError: Vals must all be ints, floats, or bools
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 40000000000000000000, -40000000000000000000])
             Traceback (most recent call last):
                 ...
             ValueError: No valid type available for -40000000000000000000 - 40000000000000000000!
+            >>> JointNestedRaggedTensorDict._infer_dtype([])
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot infer dtype from empty values; provide an explicit `schema=`.
+            >>> JointNestedRaggedTensorDict._infer_dtype([1e39])
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot store range [1e+39, 1e+39] as np.float32 (the only supported float dtype).
+            >>> JointNestedRaggedTensorDict._infer_dtype([-1e39])
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot store range [-1e+39, -1e+39] as np.float32 (the only supported float dtype).
+            >>> import numpy as np
+            >>> JointNestedRaggedTensorDict._infer_dtype([np.inf])
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot store range [inf, inf] as np.float32 (the only supported float dtype).
+            >>> JointNestedRaggedTensorDict._infer_dtype([-np.inf])
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot store range [-inf, -inf] as np.float32 (the only supported float dtype).
+            >>> JointNestedRaggedTensorDict._infer_dtype([np.nan, 1.0])
+            <class 'numpy.float32'>
+
+            NaN in the input does not mask an out-of-range finite value:
+
+            >>> JointNestedRaggedTensorDict._infer_dtype([1e39, np.nan])
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot store range [1e+39, 1e+39] as np.float32 (the only supported float dtype).
+            >>> JointNestedRaggedTensorDict._infer_dtype([np.nan, np.inf])
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot store range [inf, inf] as np.float32 (the only supported float dtype).
+
+            Mixed Python int and float where the int exceeds float64 precision:
+            numpy falls back to object dtype, we route through the float path.
+
+            >>> JointNestedRaggedTensorDict._infer_dtype([3.14, 40000000000000000000])
+            <class 'numpy.float32'>
+
+            Object-dtype input with a non-numeric element:
+
+            >>> JointNestedRaggedTensorDict._infer_dtype([1, None])
+            Traceback (most recent call last):
+                ...
+            ValueError: Vals must all be ints, floats, or bools
+
+            Float + Python int too large to represent in float64:
+
+            >>> JointNestedRaggedTensorDict._infer_dtype([3.14, 10**400])  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot store range [3.14, ...] as np.float32 (the only supported float dtype).
+
+            All-NaN input accepts (matches prior semantics; a schema can't be
+            inferred more precisely):
+
+            >>> JointNestedRaggedTensorDict._infer_dtype([np.nan])
+            <class 'numpy.float32'>
         """
-        valid_possible_Ts = (
-            (
-                float,
-                int,
-            )
-            + NP_FLOAT_TYPES
-            + NP_INT_TYPES
-            + NP_UINT_TYPES
-        )
-        if not all(isinstance(v, valid_possible_Ts) for v in vals):
-            raise ValueError("Vals are neither all floats or all ints")
+        # Let numpy do dtype inference in C — one pass instead of 3+ Python-level
+        # isinstance walks (see #69). Kind 'O' falls out of asarray when numpy cannot
+        # collapse the inputs to a single numeric dtype (e.g. Python int > int64, or
+        # mixed int+float where the int exceeds float64 precision). Kind 'b' (bool)
+        # is treated as a non-negative integer, matching the previous behavior where
+        # `isinstance(True, int)` accepted bools and inferred uint8.
+        arr = np.asarray(vals)
+        if arr.size == 0:
+            # Previously this fell out of `max([])` with a cryptic error; numpy's default
+            # dtype for an empty list is float64, which would silently return float32 here
+            # and mask real issues (e.g. all ragged rows empty — see #46). Raise instead
+            # and direct the caller to pass `schema=` explicitly.
+            raise ValueError("Cannot infer dtype from empty values; provide an explicit `schema=`.")
+        kind = arr.dtype.kind
 
-        mx, mn = max(vals), min(vals)
-
-        if any(isinstance(v, (float,) + NP_FLOAT_TYPES) for v in vals):
-            valid_Ts = [np.float32]  # We only support 32-bit floats at the moment to avoid loss of precision.
-            tinfo_fn = np.finfo
-        elif all(isinstance(v, (int,) + NP_INT_TYPES + NP_UINT_TYPES) for v in vals):
-            tinfo_fn = np.iinfo
-            if mn >= 0:
-                valid_Ts = NP_UINT_TYPES
+        if kind == "O":
+            # numpy couldn't collapse. Confirm the inputs are still all numeric, then
+            # route to the float or int path based on whether any value is a float.
+            # Abstract bases (np.integer, np.floating, np.bool_) cover every numpy
+            # scalar type listed in NUM_T without enumerating NP_INT_TYPES et al.
+            if not all(isinstance(v, (int, float, np.integer, np.floating, np.bool_)) for v in vals):
+                raise ValueError("Vals must all be ints, floats, or bools")
+            if any(isinstance(v, (float, np.floating)) for v in vals):
+                try:
+                    arr = np.asarray(vals, dtype=np.float64)
+                except OverflowError:
+                    # A Python int too big to represent in float64. Floats are stored
+                    # as float32 in this package, so this value can't be held either.
+                    mn, mx = min(vals), max(vals)
+                    raise ValueError(
+                        f"Cannot store range [{mn}, {mx}] as np.float32 " "(the only supported float dtype)."
+                    ) from None
+                kind = "f"
             else:
-                valid_Ts = NP_INT_TYPES
+                # All (Python or numpy) ints but beyond int64/uint64 range. Object
+                # dtype only happens here when no numpy int dtype can hold the value,
+                # so surface that directly with the full Python-int range for clarity.
+                mn, mx = min(vals), max(vals)
+                raise ValueError(f"No valid type available for {mn} - {mx}!")
 
-        for t in valid_Ts:
-            if mx > tinfo_fn(t).max or mn < tinfo_fn(t).min:
-                continue
-            else:
-                return t
-        raise ValueError(f"No valid type available for {mn} - {mx}!")
+        if kind == "f":
+            # Policy: always store floats as 32-bit for on-disk size consistency.
+            # Accepts the precision trade-off vs numpy's float64 default. Range-check
+            # against float32 finfo to match the original implementation: values
+            # outside the finite float32 range (including +/-inf) must raise. Use
+            # nanmin/nanmax so a NaN in the input doesn't mask an out-of-range finite
+            # value (arr.min() on [1e39, nan] returns nan, which would bypass the
+            # check). All-NaN input is accepted, matching prior semantics.
+            if np.isnan(arr).all():
+                return np.float32
+            mn = float(np.nanmin(arr))
+            mx = float(np.nanmax(arr))
+            # Cast finfo bounds to Python float to avoid a numpy "overflow in cast"
+            # RuntimeWarning when the input magnitude exceeds float32's range.
+            info = np.finfo(np.float32)
+            f32_max = float(info.max)
+            f32_min = float(info.min)
+            if mx > f32_max or mn < f32_min:
+                raise ValueError(
+                    f"Cannot store range [{mn}, {mx}] as np.float32 " "(the only supported float dtype)."
+                )
+            return np.float32
+
+        if kind == "b":
+            # Pure-bool input: store as np.bool_ rather than folding into uint8. Bool
+            # is the semantically correct type for mask-like data, works across every
+            # hot path (to_dense, slicing, vstack/concatenate, save/load), and uses
+            # the same 1 byte/element on disk as uint8 via safetensors.
+            return np.bool_
+        if kind in "iu":
+            mn = int(arr.min())
+            mx = int(arr.max())
+            candidates = NP_UINT_TYPES if mn >= 0 else NP_INT_TYPES
+            for t in candidates:
+                info = np.iinfo(t)
+                if info.min <= mn and mx <= info.max:
+                    return t
+            # Unreachable: for kind 'i'/'u', arr values fit in int64 or uint64, which
+            # are always in the candidate set — defensive guard only.
+            raise ValueError(f"No valid type available for {mn} - {mx}!")  # pragma: no cover
+
+        raise ValueError("Vals must all be ints, floats, or bools")
 
     def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T]):
         """Initializes the tensors from lists of raw data entries."""
