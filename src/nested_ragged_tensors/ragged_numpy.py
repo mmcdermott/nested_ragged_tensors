@@ -1789,10 +1789,8 @@ class JointNestedRaggedTensorDict:
 
         out = self.__class__(processed_tensors=tensors, schema=schema)
         if squeeze_dims is not None:
-            i = 0
-            for dim in sorted(squeeze_dims):
+            for i, dim in enumerate(sorted(squeeze_dims)):
                 out = out.squeeze(dim - i)
-                i += 1
         return out
 
     def _slice(
