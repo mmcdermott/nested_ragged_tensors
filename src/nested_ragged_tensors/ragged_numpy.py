@@ -834,17 +834,23 @@ class JointNestedRaggedTensorDict:
 
         Examples:
             >>> JointNestedRaggedTensorDict({"bounds": [1, 2, 3]})
+            ... # doctest: +NORMALIZE_WHITESPACE
             Traceback (most recent call last):
                 ...
-            ValueError: Reserved meta-names ['bounds'] cannot be used as user tensor names; they collide with internal ragged-structure tensors.
+            ValueError: Reserved meta-names ['bounds'] cannot be used as user tensor names;
+                they collide with internal ragged-structure tensors.
             >>> JointNestedRaggedTensorDict({"mask": [[1, 2, 3]]})
+            ... # doctest: +NORMALIZE_WHITESPACE
             Traceback (most recent call last):
                 ...
-            ValueError: Reserved meta-names ['mask'] cannot be used as user tensor names; they collide with internal ragged-structure tensors.
+            ValueError: Reserved meta-names ['mask'] cannot be used as user tensor names;
+                they collide with internal ragged-structure tensors.
             >>> JointNestedRaggedTensorDict({"T": [1, 2], "bounds": [3, 4], "mask": [5, 6]})
+            ... # doctest: +NORMALIZE_WHITESPACE
             Traceback (most recent call last):
                 ...
-            ValueError: Reserved meta-names ['bounds', 'mask'] cannot be used as user tensor names; they collide with internal ragged-structure tensors.
+            ValueError: Reserved meta-names ['bounds', 'mask'] cannot be used as user tensor names;
+                they collide with internal ragged-structure tensors.
         """
         reserved = set(self._RESERVED_SUBSET_NAMES) & set(tensors)
         if reserved:
