@@ -630,15 +630,18 @@ class JointNestedRaggedTensorDict:
     def _infer_dtype(cls, vals: Sequence[NUM_T]) -> np.dtype:
         """Infers the minimal necessary dtype for storing the input data.
 
-        Accepted scalar types are ints, floats, and bools (``bool`` is treated as a
-        non-negative integer and typically resolves to ``np.uint8``).
+        Accepted scalar types are ints, floats, and bools. Pure-bool input resolves to
+        ``np.bool_`` (first-class boolean storage, which is byte-identical to ``np.uint8``
+        on disk but preserves boolean semantics for downstream operations like masking).
+        Any bool mixed with ints or floats flows through the int or float path and is
+        promoted accordingly (``isinstance(True, int)`` is True at runtime).
 
         Args:
             vals: The sequence of values to type.
 
-        Returns: The minimal possible numpy dtype to store the inputs. If any of the inputs are floats,
-            returns `np.float32`; otherwise returns the minimal possible either signed or unsigned integral
-            dtype given the extent of the data.
+        Returns: The minimal possible numpy dtype to store the inputs. If all inputs are bools,
+            returns `np.bool_`. If any of the inputs are floats, returns `np.float32`. Otherwise
+            returns the minimal possible signed or unsigned integral dtype given the data range.
 
         Raises:
             ValueError: If the inputs are not all ints/floats/bools, if no valid numeric type
@@ -661,6 +664,8 @@ class JointNestedRaggedTensorDict:
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128])
             <class 'numpy.int16'>
             >>> JointNestedRaggedTensorDict._infer_dtype([True, False, True])
+            <class 'numpy.bool'>
+            >>> JointNestedRaggedTensorDict._infer_dtype([True, 5])  # bool + int promotes to int
             <class 'numpy.uint8'>
             >>> JointNestedRaggedTensorDict._infer_dtype([1, 2, 128, -128, "foo"])
             Traceback (most recent call last):
@@ -790,7 +795,13 @@ class JointNestedRaggedTensorDict:
                 raise ValueError(f"No valid type available for {mn} - {mx}!")
             return np.float32
 
-        if kind in "iub":
+        if kind == "b":
+            # Pure-bool input: store as np.bool_ rather than folding into uint8. Bool
+            # is the semantically correct type for mask-like data, works across every
+            # hot path (to_dense, slicing, vstack/concatenate, save/load), and uses
+            # the same 1 byte/element on disk as uint8 via safetensors.
+            return np.bool_
+        if kind in "iu":
             mn = int(arr.min())
             mx = int(arr.max())
             candidates = NP_UINT_TYPES if mn >= 0 else NP_INT_TYPES
@@ -798,8 +809,8 @@ class JointNestedRaggedTensorDict:
                 info = np.iinfo(t)
                 if info.min <= mn and mx <= info.max:
                     return t
-            # Unreachable: for kind 'i'/'u'/'b', arr values fit in int64 or uint64,
-            # which are always in the candidate set — defensive guard only.
+            # Unreachable: for kind 'i'/'u', arr values fit in int64 or uint64, which
+            # are always in the candidate set — defensive guard only.
             raise ValueError(f"No valid type available for {mn} - {mx}!")  # pragma: no cover
 
         raise ValueError("Vals must all be ints, floats, or bools")
