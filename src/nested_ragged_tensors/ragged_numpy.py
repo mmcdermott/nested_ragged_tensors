@@ -824,7 +824,35 @@ class JointNestedRaggedTensorDict:
         raise ValueError("Vals must all be ints, floats, or bools")
 
     def _initialize_tensors(self, tensors: dict[str, list[NESTED_NUM_LIST_T] | NESTED_NUM_LIST_T]):
-        """Initializes the tensors from lists of raw data entries."""
+        """Initializes the tensors from lists of raw data entries.
+
+        Reserved meta-names (``bounds``, ``mask``) are rejected here. They collide with
+        internal ragged-structure tensor names (``dim{N}/bounds`` / ``dim{N}/mask``) that
+        the class uses to track per-dimension lengths and densification masks. Allowing
+        them silently corrupted the tensor dict — ``to_dense()`` would drop the key, or
+        the auto-generated ``dim{N}/bounds`` would clash with user data — see #42.
+
+        Examples:
+            >>> JointNestedRaggedTensorDict({"bounds": [1, 2, 3]})
+            Traceback (most recent call last):
+                ...
+            ValueError: Reserved meta-names ['bounds'] cannot be used as user tensor names; they collide with internal ragged-structure tensors.
+            >>> JointNestedRaggedTensorDict({"mask": [[1, 2, 3]]})
+            Traceback (most recent call last):
+                ...
+            ValueError: Reserved meta-names ['mask'] cannot be used as user tensor names; they collide with internal ragged-structure tensors.
+            >>> JointNestedRaggedTensorDict({"T": [1, 2], "bounds": [3, 4], "mask": [5, 6]})
+            Traceback (most recent call last):
+                ...
+            ValueError: Reserved meta-names ['bounds', 'mask'] cannot be used as user tensor names; they collide with internal ragged-structure tensors.
+        """
+        reserved = set(self._RESERVED_SUBSET_NAMES) & set(tensors)
+        if reserved:
+            raise ValueError(
+                f"Reserved meta-names {sorted(reserved)} cannot be used as user tensor "
+                "names; they collide with internal ragged-structure tensors."
+            )
+
         self._tensors = {}
         for k, T in tensors.items():
             if len(T) == 0:
