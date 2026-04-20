@@ -665,6 +665,10 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             ValueError: No valid type available for -40000000000000000000 - 40000000000000000000!
+            >>> JointNestedRaggedTensorDict._infer_dtype([])
+            Traceback (most recent call last):
+                ...
+            ValueError: Cannot infer dtype from empty values; provide an explicit `schema=`.
         """
         # Let numpy do dtype inference in C — one pass instead of 3+ Python-level
         # isinstance walks (see #69). Kind 'O' falls out of asarray on Python-int
@@ -672,6 +676,12 @@ class JointNestedRaggedTensorDict:
         # Kind 'b' (bool) is treated as a non-negative integer, matching the previous
         # behavior where `isinstance(True, int)` accepted bools and inferred uint8.
         arr = np.asarray(vals)
+        if arr.size == 0:
+            # Previously this fell out of `max([])` with a cryptic error; numpy's default
+            # dtype for an empty list is float64, which would silently return float32 here
+            # and mask real issues (e.g. all ragged rows empty — see #46). Raise instead
+            # and direct the caller to pass `schema=` explicitly.
+            raise ValueError("Cannot infer dtype from empty values; provide an explicit `schema=`.")
         kind = arr.dtype.kind
 
         if kind == "f":
