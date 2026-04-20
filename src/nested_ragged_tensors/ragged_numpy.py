@@ -2192,10 +2192,11 @@ class JointNestedRaggedTensorDict:
             >>> out = J._get_slice_indices_internal(slice(1, 2), 0, {})
             >>> J._row_length_from_out_indices(out, 1)
             2
-            >>> J._row_length_from_out_indices(out, 5)  # past max_n_dims
+            >>> print(J._row_length_from_out_indices(out, 5))  # past max_n_dims
+            None
 
-            Fallback path: if a dim has no data keys, row length is derived
-            from the bounds slice + bounds tensor.
+            Fallback path — when a dim has no data keys, the row length is derived
+            from the bounds slice plus the bounds tensor itself:
 
             >>> J_nodata_dim1 = JointNestedRaggedTensorDict({"id": [[[1, 2], [3]], [[4]]]})
             >>> J_nodata_dim1.keys_at_dim(1)
