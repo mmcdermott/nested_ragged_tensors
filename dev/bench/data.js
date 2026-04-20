@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776692127157,
+  "lastUpdate": 1776694738881,
   "repoUrl": "https://github.com/mmcdermott/nested_ragged_tensors",
   "entries": {
     "Benchmark": [
@@ -14776,6 +14776,149 @@ window.BENCHMARK_DATA = {
             "name": "Outputs/BatchSize/dynamic_value",
             "value": 332084091.2,
             "range": "16014105.520314215",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mattmcdermott8@gmail.com",
+            "name": "Matthew McDermott",
+            "username": "mmcdermott"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba32dfabe9d83266c0210b5e0d98038e431e46c2",
+          "message": "Make concatenate/vstack linear instead of O(N^2) (#72)\n\n* Make concatenate/vstack linear instead of O(N^2) (closes #68)\n\nThe previous implementation grew an accumulator by doing one\nnp.concatenate per input tensor, which allocates and copies the full\ncurrent result on every iteration — O(N^2) in the number of inputs.\nAt batch=256 this runs ~140x slower than a one-shot np.concatenate;\nat batch=1024, ~470x slower. Since vstack is the dataloader collation\nhot path, this dominates training iteration time.\n\nSeparate the validation loop (touches every tensor once) from the data\ngather loop (collects all per-key arrays into lists, then does a single\nnp.concatenate per key). Offsets for bounds keys are accumulated as\nPython ints during the gather pass, so only one allocation per output\nkey remains. Behavior is unchanged — same validation errors, same\noutput dict keys, dtypes, and bound semantics.\n\nMeasured on the issue's probe (100-row 2D items, best-of-3):\n  N=16:    0.35ms -> 0.17ms   (2.0x)\n  N=64:    2.36ms -> 0.62ms   (3.8x)\n  N=256:  10.76ms -> 2.50ms   (4.3x)\n  N=1024:141.88ms -> 9.86ms  (14.4x)\n\nScaling is now linear in N, matching the one-shot np.concatenate floor.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Address PR #72 review: preserve key order, improve concat error detail\n\n- Iterate tensors[0].tensors in insertion order instead of iterating a\n  set from keys_at_dim(). Set iteration of strings is hash-randomized\n  across runs (PYTHONHASHSEED), which would have broken byte-\n  reproducibility of save_file output. The previous implementation\n  preserved order via dict(tensors[0].tensors); this restores that\n  guarantee while keeping the linear concatenation structure.\n- Exception path now includes per-part shape+dtype instead of just\n  key+dim. The original dumped full arrays (unreadable for large\n  inputs); shapes+dtypes give actionable diagnostics without the\n  noise.\n- Add a doctest locking in the key-order invariant.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* Preserve bounds dtype in concatenate offset accumulation\n\nAccumulate offset as a numpy scalar of the bounds' own dtype. A plain\nPython int offset triggers scalar-to-array dtype promotion on numpy\n< 2 — e.g., int32 bounds + large Python int could upcast to int64,\nbreaking byte-reproducibility of save_file output for disk-roundtripped\nJNRTs. Using `b[-1]` as the seed and `offset + b[-1]` as the update\nkeeps the offset's dtype bound to the input.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-20T10:17:22-04:00",
+          "tree_id": "190685c17b8d9b5e1c1e6953175290c7d362225a",
+          "url": "https://github.com/mmcdermott/nested_ragged_tensors/commit/ba32dfabe9d83266c0210b5e0d98038e431e46c2"
+        },
+        "date": 1776694738363,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Preparation/InputDiskSize",
+            "value": 26263548,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Duration/Epoch",
+            "value": 1.1898116,
+            "range": "0.037095991411464364",
+            "unit": "seconds",
+            "extra": "Count: 5"
+          },
+          {
+            "name": "Preparation/Memory/build",
+            "value": 259159966,
+            "unit": "bytes"
+          },
+          {
+            "name": "Preparation/Memory/write",
+            "value": 26242798,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Memory/read",
+            "value": 99332,
+            "unit": "bytes"
+          },
+          {
+            "name": "Usage/Memory/benchmark",
+            "value": 1227728247,
+            "unit": "bytes"
+          },
+          {
+            "name": "Preparation/Duration/build",
+            "value": 8.476255,
+            "unit": "seconds"
+          },
+          {
+            "name": "Preparation/Duration/write",
+            "value": 0.012484,
+            "unit": "seconds"
+          },
+          {
+            "name": "Usage/Duration/read",
+            "value": 0.0014684200286865234,
+            "range": "null",
+            "unit": "seconds",
+            "extra": "Count: 1"
+          },
+          {
+            "name": "Usage/Duration/benchmark",
+            "value": 6.812816381454468,
+            "range": "null",
+            "unit": "seconds",
+            "extra": "Count: 1"
+          },
+          {
+            "name": "Usage/Duration/__getitem__",
+            "value": 0.0007627654075622559,
+            "range": "0.0013566858489352839",
+            "unit": "seconds",
+            "extra": "Count: 2500"
+          },
+          {
+            "name": "Usage/Duration/_load_dynamic_data",
+            "value": 0.0007568052291870118,
+            "range": "0.0013566417480867774",
+            "unit": "seconds",
+            "extra": "Count: 2500"
+          },
+          {
+            "name": "Usage/Duration/collate",
+            "value": 0.39976370334625244,
+            "range": "0.045176018319220634",
+            "unit": "seconds",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/static_code",
+            "value": 4072,
+            "range": "101.19288512538814",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dim1/mask",
+            "value": 128072,
+            "range": "3238.1723240124206",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/timedelta",
+            "value": 512072,
+            "range": "12952.689296049683",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dim2/mask",
+            "value": 83532257.6,
+            "range": "4258526.517499894",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dynamic_code",
+            "value": 167064443.2,
+            "range": "8517053.034999788",
+            "unit": "bytes",
+            "extra": "Count: 10"
+          },
+          {
+            "name": "Outputs/BatchSize/dynamic_value",
+            "value": 334128814.4,
+            "range": "17034106.069999576",
             "unit": "bytes",
             "extra": "Count: 10"
           }
