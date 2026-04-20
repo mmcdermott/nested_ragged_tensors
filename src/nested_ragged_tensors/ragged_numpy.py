@@ -1118,6 +1118,22 @@ class JointNestedRaggedTensorDict:
             Traceback (most recent call last):
                 ...
             ValueError: Multi-level non-int slicing is not supported.
+
+        Out-of-range int indexing raises ``IndexError`` (matches Python/numpy
+        semantics, see #52). Out-of-range *slice* indexing still clips to size
+        and returns an empty view, matching numpy slicing.
+
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> J[5]
+            Traceback (most recent call last):
+                ...
+            IndexError: Index 5 is out of range for JointNestedRaggedTensorDict of length 3.
+            >>> J[-4]
+            Traceback (most recent call last):
+                ...
+            IndexError: Index -4 is out of range for JointNestedRaggedTensorDict of length 3.
+            >>> J[5:10].tensors['dim0/T']
+            array([], dtype=uint8)
         """
         return self._slice(self._get_slice_indices(idx))
 
@@ -2011,8 +2027,10 @@ class JointNestedRaggedTensorDict:
 
         match idx:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
-                return [self._get_slice_indices(slice(i, i + 1)) for i in arr]
+                normalized = [self._check_int_index(int(i)) for i in arr]
+                return [self._get_slice_indices(slice(i, i + 1)) for i in normalized]
             case int() as i:
+                i = self._check_int_index(i)
                 return (self._get_slice_indices(slice(i, i + 1)), [0])
             case tuple() as T:
                 squeeze_dims = []
@@ -2023,6 +2041,8 @@ class JointNestedRaggedTensorDict:
                         raise ValueError("Multi-level non-int slicing is not supported.")
 
                     if isinstance(idx, int):
+                        if dim == 0:
+                            idx = self._check_int_index(idx)
                         idx = slice(idx, idx + 1)
                         squeeze_dims.append(dim)
                     else:
@@ -2039,6 +2059,39 @@ class JointNestedRaggedTensorDict:
                 return self._get_slice_indices_internal(S, 0, {})
             case _:
                 raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__} slicing")
+
+    def _check_int_index(self, i: int) -> int:
+        """Bounds-check and normalize a dim-0 integer index.
+
+        Out-of-range int indexing previously silently returned an empty JNRT (positive
+        index) or raised a cryptic internal ``IndexError`` (negative index, see #52);
+        this method replaces both with a clean ``IndexError`` matching Python/numpy
+        list semantics. Only dim-0 is covered here — deeper-dim int bounds depend on
+        per-row lengths in a ragged tensor and are out of scope for this check.
+
+        Examples:
+            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
+            >>> J._check_int_index(0)
+            0
+            >>> J._check_int_index(2)
+            2
+            >>> J._check_int_index(-1)
+            2
+            >>> J._check_int_index(-3)
+            0
+            >>> J._check_int_index(3)
+            Traceback (most recent call last):
+                ...
+            IndexError: Index 3 is out of range for JointNestedRaggedTensorDict of length 3.
+            >>> J._check_int_index(-4)
+            Traceback (most recent call last):
+                ...
+            IndexError: Index -4 is out of range for JointNestedRaggedTensorDict of length 3.
+        """
+        n = len(self)
+        if not -n <= i < n:
+            raise IndexError(f"Index {i} is out of range for {self.__class__.__name__} of length {n}.")
+        return i if i >= 0 else i + n
 
     def _get_slice_indices_internal(
         self, idx: slice, starting_dim: int, curr_indices: dict[str, slice]
