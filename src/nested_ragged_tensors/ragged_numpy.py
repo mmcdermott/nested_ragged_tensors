@@ -1687,6 +1687,22 @@ class JointNestedRaggedTensorDict:
             >>> result_b.to_dense()['T']
             array([[1, 2, 0],
                    [4, 5, 6]])
+
+            The output preserves the key ordering of ``tensors[0].tensors`` so
+            ``save_file`` output is byte-reproducible across runs (see #68 review):
+
+            >>> J1 = JointNestedRaggedTensorDict({
+            ...     "T":   [[1, 2, 3], [4, 5]],
+            ...     "id":  [[[1, 2, 3], [3, 4], [1, 2]], [[3], [3, 2, 2]]],
+            ...     "val": [[[1.0, 0.2, 0.], [3.1, 0.], [1., 2.2]], [[3], [3.3, 2., 0]]],
+            ... })
+            >>> J2 = JointNestedRaggedTensorDict({
+            ...     "T":   [[6, 7, 8, 9]],
+            ...     "id":  [[[3], [3, 2, 2], [1], [1]]],
+            ...     "val": [[[3], [4., 2., 0], [0], [3.]]],
+            ... })
+            >>> list(JointNestedRaggedTensorDict.concatenate([J1, J2]).tensors) == list(J1.tensors)
+            True
         """
 
         if len(tensors) == 1:
@@ -1717,26 +1733,32 @@ class JointNestedRaggedTensorDict:
 
         # Gather all per-key arrays up front and do a single np.concatenate per key. The
         # previous implementation grew an accumulator with np.concatenate per input tensor,
-        # which is O(N^2) in the number of inputs (see #68).
+        # which is O(N^2) in the number of inputs (see #68). Iterate keys in the order
+        # tensors[0].tensors reports them so output key ordering stays insertion-order
+        # (same as the previous dict(tensors[0].tensors) init) and save_file output is
+        # byte-reproducible across runs.
         out_tensors = {}
-        for dim in range(out_max_n_dims):
-            if dim != 0:
-                bounds_key = f"dim{dim}/bounds"
+        for k_str in tensors[0].tensors:
+            dim_str, key = k_str.split("/")
+            dim = int(dim_str[3:])
+            if key == "bounds":
                 bounds_parts = []
                 offset = 0
                 for T in tensors:
-                    b = T.tensors[bounds_key]
+                    b = T.tensors[k_str]
                     bounds_parts.append(b + offset if len(b) else b)
                     if len(b):
                         offset += int(b[-1])
-                out_tensors[bounds_key] = np.concatenate(bounds_parts)
-            for key in out_keys_at_dim[dim]:
-                k_str = f"dim{dim}/{key}"
+                out_tensors[k_str] = np.concatenate(bounds_parts)
+            else:
                 parts = [T.tensors[k_str] for T in tensors]
                 try:
                     out_tensors[k_str] = np.concatenate(parts, axis=0)
                 except Exception as e:  # pragma: no cover
-                    raise ValueError(f"Failed to concatenate {key} at dim {dim}") from e
+                    shapes = ", ".join(
+                        f"part[{i}](shape={p.shape}, dtype={p.dtype})" for i, p in enumerate(parts)
+                    )
+                    raise ValueError(f"Failed to concatenate {key} at dim {dim}: {shapes}") from e
         return cls(processed_tensors=out_tensors, schema=out_schema)
 
     def _slice_single(
