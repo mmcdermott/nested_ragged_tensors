@@ -1982,9 +1982,7 @@ class JointNestedRaggedTensorDict:
 
     def _slice(
         self,
-        indices: (
-            dict[str, slice] | tuple[dict[str, slice], list[int]] | list[tuple[dict[str, slice], list[int]]]
-        ),
+        indices: (dict[str, slice] | tuple[dict[str, slice], list[int]] | list[dict[str, slice]]),
         archive=None,
     ) -> JointNestedRaggedTensorDict:
         """Returns a new JointNestedRaggedTensorDict that is a slice of this one.
@@ -2016,7 +2014,7 @@ class JointNestedRaggedTensorDict:
 
     def _get_slice_indices(
         self, idx: int | slice | tuple | np.ndarray, archive=None
-    ) -> dict[str, slice] | tuple[dict[str, slice], list[int]] | list[tuple[dict[str, slice], list[int]]]:
+    ) -> dict[str, slice] | tuple[dict[str, slice], list[int]] | list[dict[str, slice]]:
         """Returns the start and end indices for each dimension of self after slicing by idx.
 
         Args:
