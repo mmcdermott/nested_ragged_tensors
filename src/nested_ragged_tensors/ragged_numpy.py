@@ -1031,7 +1031,7 @@ class JointNestedRaggedTensorDict:
         """
         return {k for k in self.keys() if self._get_dim(k) == dim}
 
-    def __getitem__(self, idx: int | slice | np.ndarray):
+    def __getitem__(self, idx: int | slice | tuple | np.ndarray):
         """Returns either a slice of the tensors in this collection or the tensor at the given key.
 
         Args:
@@ -1982,8 +1982,11 @@ class JointNestedRaggedTensorDict:
 
     def _slice(
         self,
-        indices: tuple[dict[str, slice | np.ndarray], bool]
-        | list[tuple[dict[str, slice | np.ndarray], bool]],
+        indices: (
+            dict[str, slice]
+            | tuple[dict[str, slice], list[int]]
+            | list[tuple[dict[str, slice], list[int]]]
+        ),
         archive=None,
     ) -> JointNestedRaggedTensorDict:
         """Returns a new JointNestedRaggedTensorDict that is a slice of this one.
@@ -2015,7 +2018,11 @@ class JointNestedRaggedTensorDict:
 
     def _get_slice_indices(
         self, idx: int | slice | tuple | np.ndarray, archive=None
-    ) -> tuple[dict[str, slice], bool] | list[dict[str, slice]] | dict[str, slice]:
+    ) -> (
+        dict[str, slice]
+        | tuple[dict[str, slice], list[int]]
+        | list[tuple[dict[str, slice], list[int]]]
+    ):
         """Returns the start and end indices for each dimension of self after slicing by idx.
 
         Args:
