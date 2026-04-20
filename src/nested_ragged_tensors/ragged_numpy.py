@@ -591,10 +591,19 @@ class JointNestedRaggedTensorDict:
                     self.__dict__["_tensor_keys"] = set(self._subset_keys)
                 else:
                     self.__dict__["_tensor_keys"] = set(f.keys())
-            # Prime _cached_len using this handle. __getitem__ now calls len(self)
-            # via _bounds_check_int (for dim-0 bounds checking), which would
-            # otherwise trigger a second safe_open. The length is immutable once
-            # the JNRT is constructed, so caching it permanently is safe.
+            # Prime _cached_len using this handle. __getitem__ calls len(self)
+            # via _bounds_check_int for dim-0 bounds checking; without this
+            # priming, that call would trigger a second safe_open.
+            #
+            # Permanently memoizing __len__ is a deliberate behavior change from
+            # the prior "compute fresh each call" implementation, but is safe
+            # under the JNRT's immutability-post-construction contract: nothing
+            # in the public API mutates _tensors_fp / _subset_keys / _tensors,
+            # and every operation that changes length (`__getitem__`, `squeeze`,
+            # `unsqueeze`, `flatten`, `concatenate`, `vstack`) returns a new
+            # instance with its own cache state. Stale cache would only happen
+            # under private-attribute mutation or out-of-band file modification,
+            # both out of spec.
             if "_cached_len" not in self.__dict__:
                 if self.max_n_dims == 1:
                     k = next(iter(self._tensor_keys))

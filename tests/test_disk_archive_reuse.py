@@ -85,3 +85,32 @@ def test_1d_disk_access_primes_cached_len():
         J[0]  # warm
         count = _count_safe_open(lambda: J[0])
         assert count <= 1
+
+
+def test_cached_len_is_consistent_before_and_after_getitem(disk_jnrt):
+    """``len(J)`` must be identical before and after ``__getitem__`` triggers ``_cached_len`` priming.
+
+    Belt-and-suspenders guard against a future change accidentally populating the cache with a wrong value.
+    """
+    J = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    len_before = len(J)
+    _ = J[0]  # enters _archive_ctx which primes _cached_len
+    len_after = len(J)
+    assert len_before == len_after == 20  # fixture has 20 rows
+
+
+def test_cached_len_is_consistent_across_load_modes(disk_jnrt):
+    """Full-load and subset-load JNRTs on the same file must report the same length at dim 0.
+
+    Primed ``_cached_len`` values must agree with freshly-computed values
+    from a direct-len path.
+    """
+    J_full = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    J_sub = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt, keys={"val_a"})
+    J_mem = JointNestedRaggedTensorDict(tensors_fp=disk_jnrt)
+    _ = J_mem.tensors  # force in-memory load — different len() code path
+    assert len(J_full) == len(J_sub) == len(J_mem) == 20
+    # And priming via __getitem__ doesn't change the answer for any load mode.
+    for J in (J_full, J_sub, J_mem):
+        J[0]
+        assert len(J) == 20
