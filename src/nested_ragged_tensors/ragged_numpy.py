@@ -664,34 +664,28 @@ class JointNestedRaggedTensorDict:
                 ...
             ValueError: No valid type available for -40000000000000000000 - 40000000000000000000!
         """
-        valid_possible_Ts = (
-            (
-                float,
-                int,
-            )
-            + NP_FLOAT_TYPES
-            + NP_INT_TYPES
-            + NP_UINT_TYPES
-        )
-        if not all(isinstance(v, valid_possible_Ts) for v in vals):
+        # Let numpy do dtype inference in C — one pass instead of 3+ Python-level
+        # isinstance walks (see #69). Kind 'O' falls out of asarray on Python-int
+        # overflow; we handle that below to preserve the "No valid type" error.
+        arr = np.asarray(vals)
+        kind = arr.dtype.kind
+
+        if kind == "f":
+            return np.float32  # policy: 32-bit floats only, to avoid precision loss
+        if kind in "iu":
+            mn = int(arr.min())
+            mx = int(arr.max())
+        elif kind == "O" and all(isinstance(v, int) for v in vals):
+            # Python int too large for any numpy int dtype — fall back to Python min/max.
+            mn = min(vals)
+            mx = max(vals)
+        else:
             raise ValueError("Vals are neither all floats or all ints")
 
-        mx, mn = max(vals), min(vals)
-
-        if any(isinstance(v, (float,) + NP_FLOAT_TYPES) for v in vals):
-            valid_Ts = [np.float32]  # We only support 32-bit floats at the moment to avoid loss of precision.
-            tinfo_fn = np.finfo
-        elif all(isinstance(v, (int,) + NP_INT_TYPES + NP_UINT_TYPES) for v in vals):
-            tinfo_fn = np.iinfo
-            if mn >= 0:
-                valid_Ts = NP_UINT_TYPES
-            else:
-                valid_Ts = NP_INT_TYPES
-
-        for t in valid_Ts:
-            if mx > tinfo_fn(t).max or mn < tinfo_fn(t).min:
-                continue
-            else:
+        candidates = NP_UINT_TYPES if mn >= 0 else NP_INT_TYPES
+        for t in candidates:
+            info = np.iinfo(t)
+            if info.min <= mn and mx <= info.max:
                 return t
         raise ValueError(f"No valid type available for {mn} - {mx}!")
 
