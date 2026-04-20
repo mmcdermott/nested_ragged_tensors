@@ -2081,10 +2081,10 @@ class JointNestedRaggedTensorDict:
 
         match idx:
             case np.ndarray() as arr if arr.dtype in (NP_INT_TYPES + NP_UINT_TYPES) and arr.ndim == 1:
-                normalized = [self._check_int_index(int(i)) for i in arr]
+                normalized = [self._bounds_check_int(int(i), len(self), 0) for i in arr]
                 return [self._get_slice_indices(slice(i, i + 1)) for i in normalized]
             case int() as i:
-                i = self._check_int_index(i)
+                i = self._bounds_check_int(i, len(self), 0)
                 return (self._get_slice_indices(slice(i, i + 1)), [0])
             case tuple() as T:
                 squeeze_dims = []
@@ -2112,12 +2112,7 @@ class JointNestedRaggedTensorDict:
                         )
 
                     if isinstance(idx, int):
-                        if not -current_length <= idx < current_length:
-                            raise IndexError(
-                                f"Index {idx} is out of range at dim {dim} " f"(length {current_length})."
-                            )
-                        if idx < 0:
-                            idx += current_length
+                        idx = self._bounds_check_int(idx, current_length, dim)
                         idx = slice(idx, idx + 1)
                         squeeze_dims.append(dim)
                     else:
@@ -2136,42 +2131,41 @@ class JointNestedRaggedTensorDict:
             case _:
                 raise TypeError(f"{type(idx)} not supported for {self.__class__.__name__} slicing")
 
-    def _check_int_index(self, i: int) -> int:
-        """Bounds-check and normalize a dim-0 integer index.
+    @staticmethod
+    def _bounds_check_int(idx: int, length: int, dim: int) -> int:
+        """Bounds-check and normalize an integer index against a given ``length``.
 
-        Out-of-range int indexing previously silently returned an empty JNRT (positive
-        index) or raised a cryptic internal ``IndexError`` (negative index, see #52);
-        this method replaces both with a clean ``IndexError`` matching Python/numpy
-        list semantics. Only dim-0 is handled here; dim>0 bounds checks for
-        multi-dim tuple slicing are computed inline in ``_get_slice_indices`` using
-        ``_row_length_from_out_indices`` for the current row length at each depth.
-        The error message format matches the dim>0 wording so callers see the same
-        ``"Index X is out of range at dim D (length N)"`` pattern regardless of which
-        dim failed.
+        Used for int-index bounds checks at every dim (dim-0 via ``len(self)``,
+        dim>0 via the row length derived from ``_row_length_from_out_indices``).
+        Raises ``IndexError`` with the uniform ``"Index X is out of range at dim D
+        (length N)"`` format, so callers see identical wording regardless of which
+        dim failed. Returns the normalized (non-negative) index.
 
         Examples:
-            >>> J = JointNestedRaggedTensorDict({"T": [1, 2, 3]})
-            >>> J._check_int_index(0)
+            >>> JointNestedRaggedTensorDict._bounds_check_int(0, 3, 0)
             0
-            >>> J._check_int_index(2)
+            >>> JointNestedRaggedTensorDict._bounds_check_int(2, 3, 0)
             2
-            >>> J._check_int_index(-1)
+            >>> JointNestedRaggedTensorDict._bounds_check_int(-1, 3, 0)
             2
-            >>> J._check_int_index(-3)
+            >>> JointNestedRaggedTensorDict._bounds_check_int(-3, 3, 0)
             0
-            >>> J._check_int_index(3)
+            >>> JointNestedRaggedTensorDict._bounds_check_int(3, 3, 0)
             Traceback (most recent call last):
                 ...
             IndexError: Index 3 is out of range at dim 0 (length 3).
-            >>> J._check_int_index(-4)
+            >>> JointNestedRaggedTensorDict._bounds_check_int(-4, 3, 0)
             Traceback (most recent call last):
                 ...
             IndexError: Index -4 is out of range at dim 0 (length 3).
+            >>> JointNestedRaggedTensorDict._bounds_check_int(5, 2, 1)
+            Traceback (most recent call last):
+                ...
+            IndexError: Index 5 is out of range at dim 1 (length 2).
         """
-        n = len(self)
-        if not -n <= i < n:
-            raise IndexError(f"Index {i} is out of range at dim 0 (length {n}).")
-        return i if i >= 0 else i + n
+        if not -length <= idx < length:
+            raise IndexError(f"Index {idx} is out of range at dim {dim} (length {length}).")
+        return idx if idx >= 0 else idx + length
 
     def _row_length_from_out_indices(self, out_indices: dict, dim: int) -> int | None:
         """Row length at ``dim`` given the current tuple-slice resolution state.
