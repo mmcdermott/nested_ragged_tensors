@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import warnings
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from functools import cached_property
@@ -1511,20 +1512,25 @@ class JointNestedRaggedTensorDict:
             >>> print(len(J.flatten()))
             12
 
-        Flattening works on inputs whose inner ragged rows are all empty — the
-        outer-dim data is dropped because there are no positions to broadcast it
-        into (see #46).
+        Flattening works on inputs whose inner ragged rows are all empty, but warns
+        because the outer-dim data is silently dropped (there are no positions to
+        broadcast it into — see #46).
 
+            >>> import warnings
             >>> J = JointNestedRaggedTensorDict(
             ...     {"T": [1, 2], "Z": [[], []]}, schema={"T": int, "Z": int}
             ... )
-            >>> flat = J.flatten()
+            >>> with warnings.catch_warnings(record=True) as caught:
+            ...     warnings.simplefilter("always")
+            ...     flat = J.flatten()
             >>> len(flat)
             0
             >>> flat.to_dense()['Z']
             array([], dtype=int64)
             >>> flat.to_dense()['T']
             array([], dtype=int64)
+            >>> str(caught[0].message)  # doctest: +ELLIPSIS
+            "flatten(): all inner ragged rows are empty, ... key(s) ['T'] will be dropped..."
         """
         if dim < 0:
             target_dim = self.max_n_dims + dim
@@ -1561,17 +1567,27 @@ class JointNestedRaggedTensorDict:
             for k in self.keys_at_dim(d):
                 out_tensors[f"dim{d - 1}/{k}"] = self.tensors[f"dim{d}/{k}"]
 
-        if len(self.keys_at_dim(target_dim - 1)) > 0:
+        outer_keys = self.keys_at_dim(target_dim - 1)
+        if outer_keys:
             B = self.tensors[f"dim{target_dim}/bounds"]
             L = int(B[-1]) if len(B) else 0
             indices = np.concatenate([[0], B[:-1]])
-            for k in self.keys_at_dim(target_dim - 1):
+            if L == 0:
+                # All inner ragged rows were empty, so the flattened length is 0 and
+                # there are no positions to broadcast outer-dim values into. The
+                # zero-length output is semantically correct (flatten is a reshape,
+                # not a reduction), but the outer-dim data *is* dropped silently
+                # without a warning — see #46.
+                warnings.warn(
+                    f"flatten(): all inner ragged rows are empty, so the flattened "
+                    f"length is 0. Values at outer-dim key(s) {sorted(outer_keys)} "
+                    f"will be dropped because there are no positions to broadcast "
+                    f"them into.",
+                    stacklevel=2,
+                )
+            for k in outer_keys:
                 old_T = self.tensors[f"dim{target_dim-1}/{k}"]
                 new_T = np.zeros(shape=(L,), dtype=old_T.dtype)
-                # When the flattened length is 0 (all inner ragged rows were empty), there
-                # are no positions to broadcast outer-dim values into. Skip the scatter;
-                # the zero-length new_T is the semantically correct output. Prior to this
-                # guard, `new_T[indices] = old_T` raised IndexError — see #46.
                 if L > 0:
                     new_T[indices] = old_T
                 out_tensors[f"dim{target_dim-1}/{k}"] = new_T
