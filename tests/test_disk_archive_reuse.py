@@ -74,3 +74,14 @@ def test_subset_load_access_coalesces_safe_open(disk_jnrt):
     J[0]  # warm caches
     count = _count_safe_open(lambda: J[0])
     assert count <= 1
+
+
+def test_1d_disk_access_primes_cached_len():
+    """1D JNRTs take a different ``_archive_ctx`` priming branch (no dim1/bounds)."""
+    with tempfile.TemporaryDirectory() as td:
+        fp = Path(td) / "t.nrt"
+        JointNestedRaggedTensorDict({"T": list(range(50))}).save(fp)
+        J = JointNestedRaggedTensorDict(tensors_fp=fp)
+        J[0]  # warm
+        count = _count_safe_open(lambda: J[0])
+        assert count <= 1

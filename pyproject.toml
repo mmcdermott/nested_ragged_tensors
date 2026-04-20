@@ -24,6 +24,11 @@ benchmarks = ["ml-mixins", "torch", "rootutils", "memray"]
 
 [tool.setuptools_scm]
 
+[tool.pytest.ini_options]
+# Default flags applied to every doctest. NORMALIZE_WHITESPACE lets expected-output
+# lines wrap naturally; ELLIPSIS lets `...` stand in for variable paths / numbers.
+doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
+
 [project.optional-dependencies]
 docs = [
   "mkdocs>=1.6.1", "mkdocs-material>=9.5.31", "mkdocstrings[python]>=0.26", "mkdocs-gen-files>=0.5",
